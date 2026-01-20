@@ -57,7 +57,10 @@ def load_optimized_pipeline(model_id):
         "text-generation", 
         model=model_id, 
         device=device, 
-        trust_remote_code=True
+        tokenizer=tokenizer, 
+        max_new_tokens=150,
+        return_full_text=False, # Important: Don't repeat the prompt
+        pad_token_id=tokenizer.eos_token_id
     )
 
 # --- Main Execution ---
@@ -76,34 +79,17 @@ if __name__ == "__main__":
         # Goal: Extract security signals from noise.
         collector_prompt = PromptTemplate(
             input_variables=["raw_data"],
-            template="""Instruct: You are a Security Data Collector Agent. 
-        Your goal is to read the raw text below and extract ONLY information related to security vulnerabilities, patches, or risks in Python packages (Flask, Django, etc.).
-        Ignore marketing fluff, unrelated code updates, or general news.
-
-        Raw Data:
-        {raw_data}
-
-        Output:
-        Provide a bulleted list of the specific security findings. If none, state "No security data found."
-        Output:"""
+            template="""Instruct: Extract ONLY security vulnerabilities from the text below. Return a single line summary. If none, say "No security data found."
+        Raw Data: {raw_data}
+        Output:""" 
         )
 
         # AGENT 2: THE NORMALIZER
         # Goal: Structure the data and assign confidence.
         normalizer_prompt = PromptTemplate(
             input_variables=["collector_output"],
-            template="""Instruct: You are a Security Data Normalizer Agent.
-        Your input is a list of findings from a Collector Agent. 
-        Your task is to:
-        1. Standardize this into a structured format (JSON-like).
-        2. Assign a "Confidence Score" (Low/Medium/High) based on how specific the details are.
-        3. Flag if the Collector seemed to be hallucinating (e.g., vague claims without version numbers).
-
-        Collector Input:
-        {collector_output}
-
-        Output:
-        Provide the final structured report.
+            template="""Instruct: Convert this finding into JSON format {{ "finding": "...", "confidence": "Low/Med/High" }}. Return ONLY the JSON.
+        Input: {collector_output}
         Output:"""
         )
 
