@@ -1,5 +1,6 @@
 from transformers import AutoTokenizer, pipeline, AutoModelForCausalLM
 import torch
+import pandas as pd
 from langchain_huggingface import HuggingFacePipeline
 from langchain_core.prompts import PromptTemplate 
 from langchain_core.output_parsers import StrOutputParser
@@ -109,37 +110,74 @@ if __name__ == "__main__":
         # --- 4. BUILDING THE CHAIN ---
         # Flow: Raw Data -> Collector -> (pass to) Normalizer -> Final Output
 
-        # Chain 1: Collector runs
+        # Create Chains
         collector_chain = collector_prompt | llm | StrOutputParser()
-
-        # Chain 2: Normalizer runs on Collector's output
-        # We use a functional chain where the output of the first step is passed as 'collector_output' to the second
-        full_chain = (
-            {"collector_output": collector_chain} 
-            | normalizer_prompt 
-            | llm 
-            | StrOutputParser()
-        )
+        normalizer_chain = normalizer_prompt | llm | StrOutputParser()
 
         # --- 5. EXECUTION ---
         if __name__ == "__main__":
             # Example "messy" data typical of Python package release notes
-            messy_data = """
-            We are excited to announce version 4.2! This release includes a new logo and better dark mode support. 
-            Also, we fixed a critical issue where untrusted inputs in the YAML parser could lead to arbitrary code execution (CVE-2024-XXXX). 
-            Thanks to user @dev123 for the PR. In other news, our annual conference is coming up next month!
-            """
+            test_cases = [
+                {
+                    "id": "TC_01_Clear_Security",
+                    "type": "Baseline",
+                    "data": "Django 4.2.1 release notes: Fixed CVE-2024-1234 where SQL injection was possible in the admin panel. Please upgrade immediately."
+                },
+                {
+                    "id": "TC_02_Pure_Marketing",
+                    "type": "Noise Filter Test",
+                    "data": "We are thrilled to launch Flask-Super! It has a new logo, faster routing, and 100% more emojis. Join our discord to celebrate!"
+                },
+                {
+                    "id": "TC_03_Vague_Risk",
+                    "type": "Confidence Test",
+                    "data": "Some users reported weird behavior in the login module. We tweaked the code to be safer, but we aren't sure if it was a real exploit."
+                },
+                {
+                    "id": "TC_04_Mixed_Content",
+                    "type": "Extraction Test",
+                    "data": "New features: Dark mode added. Security fix: Patched a buffer overflow in the YAML parser (Critical). Also added support for Python 3.12."
+                },
+                {
+                    "id": "TC_05_Hallucination_Trap",
+                    "type": "Hallucination Test",
+                    "data": "This update makes the library 10x faster. It is essentially bulletproof now. No bugs were found, but we updated the dependencies just in case."
+                }
+            ]
 
-            print("\n--- 🕵️ RUNNING AGENT SIMULATION ---")
-            print(f"Input Data: {messy_data[:100]}...\n")
-            
-            # Run the full chain
-            # Note: To debug, you can run just collector_chain.invoke({"raw_data": messy_data})
-            result = full_chain.invoke({"raw_data": messy_data})
-            
-            print("--- 📝 FINAL NORMALIZER REPORT ---")
-            print(result)
-        
+            # --- 4. EXECUTION LOOP ---
+            results = []
+
+            print("\n--- 🕵️ STARTING EVALUATION RUN ---")
+
+            for case in test_cases:
+                print(f"Processing {case['id']}...")
+                
+                # Step 1: Run Collector
+                collector_output = collector_chain.invoke({"raw_data": case["data"]})
+                
+                # Step 2: Run Normalizer (feeding it the Collector's output)
+                normalizer_output = normalizer_chain.invoke({"collector_output": collector_output})
+                
+                # Step 3: Log Data
+                results.append({
+                    "Test_ID": case["id"],
+                    "Test_Type": case["type"],
+                    "Raw_Input": case["data"],
+                    "Collector_Output": collector_output.strip(),
+                    "Normalizer_Output": normalizer_output.strip(),
+                    "Manual_Grade_Noise": "",        # For you to fill in CSV
+                    "Manual_Grade_Hallucination": "", # For you to fill in CSV
+                    "Manual_Grade_Confidence": ""     # For you to fill in CSV
+                })
+
+                # --- 5. EXPORT RESULTS ---
+            df = pd.DataFrame(results)
+            df.to_csv("agent_evaluation_results.csv", index=False)
+
+            print("\n✅ Done! Results saved to 'agent_evaluation_results.csv'.")
+            print("Open this CSV to perform your manual grading based on the rubric.")
+                    
     except Exception as e:
         print(f"An error occurred: {e}")
 

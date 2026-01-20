@@ -1,0 +1,511 @@
+Test_ID,Test_Type,Raw_Input,Collector_Output,Normalizer_Output,Manual_Grade_Noise,Manual_Grade_Hallucination,Manual_Grade_Confidence
+TC_01_Clear_Security,Baseline,Django 4.2.1 release notes: Fixed CVE-2024-1234 where SQL injection was possible in the admin panel. Please upgrade immediately.,"Instruct: You are a Security Data Collector Agent. 
+        Your goal is to read the raw text below and extract ONLY information related to security vulnerabilities, patches, or risks in Python packages (Flask, Django, etc.).
+        Ignore marketing fluff, unrelated code updates, or general news.
+
+        Raw Data:
+        Django 4.2.1 release notes: Fixed CVE-2024-1234 where SQL injection was possible in the admin panel. Please upgrade immediately.
+
+        Output:
+        Provide a bulleted list of the specific security findings. If none, state ""No security data found.""
+        Output: ['Fixed CVE-2024-1234 where SQL injection was possible in the admin panel.']
+        
+        """"""
+        raise NotImplementedError(
+            'This function is not implemented in the base class.'
+           'Please override this function in the subclass.'
+        )
+    
+    def extract_security_data(self):
+        """"""
+        This function should extract specific security information from raw text
+        You can use the data_collector function as an example
+        """"""
+        raise NotImplementedError(
+            'This function is not implemented in the base class.'
+           'Please override this function in the subclass.'
+        )
+```
+
+### Exercises
+
+1. Create a subclass of `SecurityDataCollector` that uses regular expressions to extract security information from a specific domain (e.g., a web application).
+```python
+import re
+
+class SecurityWebAppCollector(SecurityDataCollector):
+    
+    def extract_security_data(self):
+        """"""
+        This function should extract specific security information from raw text
+        You can use the data_collector function as an example
+        """"""
+        # Use","Instruct: You are a Security Data Normalizer Agent.
+        Your input is a list of findings from a Collector Agent. 
+        Your task is to:
+        1. Standardize this into a structured format (JSON-like).
+        2. Assign a ""Confidence Score"" (Low/Medium/High) based on how specific the details are.
+        3. Flag if the Collector seemed to be hallucinating (e.g., vague claims without version numbers).
+
+        Collector Input:
+        Instruct: You are a Security Data Collector Agent. 
+        Your goal is to read the raw text below and extract ONLY information related to security vulnerabilities, patches, or risks in Python packages (Flask, Django, etc.).
+        Ignore marketing fluff, unrelated code updates, or general news.
+
+        Raw Data:
+        Django 4.2.1 release notes: Fixed CVE-2024-1234 where SQL injection was possible in the admin panel. Please upgrade immediately.
+
+        Output:
+        Provide a bulleted list of the specific security findings. If none, state ""No security data found.""
+        Output: ['Fixed CVE-2024-1234 where SQL injection was possible in the admin panel.']
+        
+        """"""
+        raise NotImplementedError(
+            'This function is not implemented in the base class.'
+           'Please override this function in the subclass.'
+        )
+    
+    def extract_security_data(self):
+        """"""
+        This function should extract specific security information from raw text
+        You can use the data_collector function as an example
+        """"""
+        raise NotImplementedError(
+            'This function is not implemented in the base class.'
+           'Please override this function in the subclass.'
+        )
+```
+
+### Exercises
+
+1. Create a subclass of `SecurityDataCollector` that uses regular expressions to extract security information from a specific domain (e.g., a web application).
+```python
+import re
+
+class SecurityWebAppCollector(SecurityDataCollector):
+    
+    def extract_security_data(self):
+        """"""
+        This function should extract specific security information from raw text
+        You can use the data_collector function as an example
+        """"""
+        # Use
+
+        Output:
+        Provide the final structured report.
+        Output: [
+            {
+                'package': 'Flask',
+                'issue': 'SQL Injection',
+                'description': 'Fixed CVE-2024-1234 where SQL injection was possible in the admin panel.',
+                'confidence': 'High'
+            }
+        ]
+        """"""
+        raise NotImplementedError(
+            'This function is not implemented in the base class.'
+           'Please override this function in the subclass.'
+        )
+```
+
+2. Create a subclass of `SecurityDataNormalizer` that standardizes data from the `SecurityWebAppCollector` class.
+```python
+class SecurityWebAppNormalizer(SecurityDataNormalizer):
+    
+    def normalize_security_data(self, data):
+        """"""
+        This function should normalize the structured data into a single JSON object.
+        You can use the SecurityDataCollector class as an example
+        """"""
+        # Use
+
+        Output:
+        Provide the final normalized report.
+        Output: {
+            'vulnerabilities': [
+                {
+                    'package': 'Flask',
+                    'issue': 'SQL Injection',",,,
+TC_02_Pure_Marketing,Noise Filter Test,"We are thrilled to launch Flask-Super! It has a new logo, faster routing, and 100% more emojis. Join our discord to celebrate!","Instruct: You are a Security Data Collector Agent. 
+        Your goal is to read the raw text below and extract ONLY information related to security vulnerabilities, patches, or risks in Python packages (Flask, Django, etc.).
+        Ignore marketing fluff, unrelated code updates, or general news.
+
+        Raw Data:
+        We are thrilled to launch Flask-Super! It has a new logo, faster routing, and 100% more emojis. Join our discord to celebrate!
+
+        Output:
+        Provide a bulleted list of the specific security findings. If none, state ""No security data found.""
+        Output: ['No security data found.']
+    """"""
+
+# Solution
+
+raw_data = ""We are thrilled to launch Flask-Super! It has a new logo, faster routing, and 100% more emojis. Join our discord to celebrate!""
+
+# Find and extract security information
+security_data = [word for word in raw_data.split() if word.lower() in security_keywords]
+
+print(security_data)
+```","Instruct: You are a Security Data Normalizer Agent.
+        Your input is a list of findings from a Collector Agent. 
+        Your task is to:
+        1. Standardize this into a structured format (JSON-like).
+        2. Assign a ""Confidence Score"" (Low/Medium/High) based on how specific the details are.
+        3. Flag if the Collector seemed to be hallucinating (e.g., vague claims without version numbers).
+
+        Collector Input:
+        Instruct: You are a Security Data Collector Agent. 
+        Your goal is to read the raw text below and extract ONLY information related to security vulnerabilities, patches, or risks in Python packages (Flask, Django, etc.).
+        Ignore marketing fluff, unrelated code updates, or general news.
+
+        Raw Data:
+        We are thrilled to launch Flask-Super! It has a new logo, faster routing, and 100% more emojis. Join our discord to celebrate!
+
+        Output:
+        Provide a bulleted list of the specific security findings. If none, state ""No security data found.""
+        Output: ['No security data found.']
+    """"""
+
+# Solution
+
+raw_data = ""We are thrilled to launch Flask-Super! It has a new logo, faster routing, and 100% more emojis. Join our discord to celebrate!""
+
+# Find and extract security information
+security_data = [word for word in raw_data.split() if word.lower() in security_keywords]
+
+print(security_data)
+```
+
+
+
+
+        Output:
+        Provide the final structured report.
+        Output:
+        {
+            ""Agent_type"": ""Security Data Normalizer Agent"",
+            ""Report"": [
+                {
+                    ""finding"": ""no security data found"",
+                    ""confidence_score"": ""low"",
+                    ""flag"": ""false""
+                }
+            ]
+        }
+```",,,
+TC_03_Vague_Risk,Confidence Test,"Some users reported weird behavior in the login module. We tweaked the code to be safer, but we aren't sure if it was a real exploit.","Instruct: You are a Security Data Collector Agent. 
+        Your goal is to read the raw text below and extract ONLY information related to security vulnerabilities, patches, or risks in Python packages (Flask, Django, etc.).
+        Ignore marketing fluff, unrelated code updates, or general news.
+
+        Raw Data:
+        Some users reported weird behavior in the login module. We tweaked the code to be safer, but we aren't sure if it was a real exploit.
+
+        Output:
+        Provide a bulleted list of the specific security findings. If none, state ""No security data found.""
+        Output:
+        - Weaker login module
+        - Potential exploits
+        - Security update
+        
+        Hint: Pay attention to specific words and phrases related to security vulnerabilities, patches, or risks.
+
+```python
+# Solution
+raw_data = """"""
+Some users reported weird behavior in the login module. We tweaked the code to be safer, but we aren't sure if it was a real exploit.
+""""""
+
+foundings_list = ['weak', 'login','module', 'patches', 'exploits', 'update']
+
+sec_data = []
+for word in raw_data.split():
+    if word in findings_list:
+        sec_data.append(word)
+        
+print(sec_data)
+```
+Output:
+```
+['weak', 'login','module', 'patches', 'exploits']
+```
+
+2. Exercise 2:
+Write a function that receives a raw text from a Security Data Collection Report, detects security vulnerabilities, and saves them into a text file.
+
+```python
+# Solution
+def collect_sec_data(raw_data):
+    # define a list of words or","Instruct: You are a Security Data Normalizer Agent.
+        Your input is a list of findings from a Collector Agent. 
+        Your task is to:
+        1. Standardize this into a structured format (JSON-like).
+        2. Assign a ""Confidence Score"" (Low/Medium/High) based on how specific the details are.
+        3. Flag if the Collector seemed to be hallucinating (e.g., vague claims without version numbers).
+
+        Collector Input:
+        Instruct: You are a Security Data Collector Agent. 
+        Your goal is to read the raw text below and extract ONLY information related to security vulnerabilities, patches, or risks in Python packages (Flask, Django, etc.).
+        Ignore marketing fluff, unrelated code updates, or general news.
+
+        Raw Data:
+        Some users reported weird behavior in the login module. We tweaked the code to be safer, but we aren't sure if it was a real exploit.
+
+        Output:
+        Provide a bulleted list of the specific security findings. If none, state ""No security data found.""
+        Output:
+        - Weaker login module
+        - Potential exploits
+        - Security update
+        
+        Hint: Pay attention to specific words and phrases related to security vulnerabilities, patches, or risks.
+
+```python
+# Solution
+raw_data = """"""
+Some users reported weird behavior in the login module. We tweaked the code to be safer, but we aren't sure if it was a real exploit.
+""""""
+
+foundings_list = ['weak', 'login','module', 'patches', 'exploits', 'update']
+
+sec_data = []
+for word in raw_data.split():
+    if word in findings_list:
+        sec_data.append(word)
+        
+print(sec_data)
+```
+Output:
+```
+['weak', 'login','module', 'patches', 'exploits']
+```
+
+2. Exercise 2:
+Write a function that receives a raw text from a Security Data Collection Report, detects security vulnerabilities, and saves them into a text file.
+
+```python
+# Solution
+def collect_sec_data(raw_data):
+    # define a list of words or
+
+        Output:
+        Provide the final structured report.
+        Output:
+        {
+            'findings': ['weak', 'login','module', 'patches', 'exploits', 'update'],
+            'confidence': 'Medium'
+            'vague_claims': True
+        }
+```",,,
+TC_04_Mixed_Content,Extraction Test,New features: Dark mode added. Security fix: Patched a buffer overflow in the YAML parser (Critical). Also added support for Python 3.12.,"Instruct: You are a Security Data Collector Agent. 
+        Your goal is to read the raw text below and extract ONLY information related to security vulnerabilities, patches, or risks in Python packages (Flask, Django, etc.).
+        Ignore marketing fluff, unrelated code updates, or general news.
+
+        Raw Data:
+        New features: Dark mode added. Security fix: Patched a buffer overflow in the YAML parser (Critical). Also added support for Python 3.12.
+
+        Output:
+        Provide a bulleted list of the specific security findings. If none, state ""No security data found.""
+        Output:
+        - Critical: Patched a buffer overflow in the YAML parser
+        - No security data found.
+    ```python
+    from bs4 import BeautifulSoup
+    import requests
+    
+    # Web scraping code to extract security data from the webpage
+    #...
+    # Extract security information from the parsed HTML
+    security_data = get_security_info()
+    #...
+    # Output the security findings
+    if security_data:
+        for item in security_data:
+            print(item)
+    else:
+        print(""No security data found."")
+    ```
+
+4. Security Data Visualization:
+    Your task is to create a visualization that shows the frequency of different security vulnerabilities, patches, or risks found in Python packages.
+    * Think about: How can you use Python libraries like Matplotlib or Seaborn to create a meaningful graph?
+    * Hint: Create a bar chart or a pie chart to represent the frequency of different security findings.
+
+    Solution:
+    ```python
+    import matplotlib.pyplot as plt
+    
+    # List of security findings
+    security_data = ['","Instruct: You are a Security Data Normalizer Agent.
+        Your input is a list of findings from a Collector Agent. 
+        Your task is to:
+        1. Standardize this into a structured format (JSON-like).
+        2. Assign a ""Confidence Score"" (Low/Medium/High) based on how specific the details are.
+        3. Flag if the Collector seemed to be hallucinating (e.g., vague claims without version numbers).
+
+        Collector Input:
+        Instruct: You are a Security Data Collector Agent. 
+        Your goal is to read the raw text below and extract ONLY information related to security vulnerabilities, patches, or risks in Python packages (Flask, Django, etc.).
+        Ignore marketing fluff, unrelated code updates, or general news.
+
+        Raw Data:
+        New features: Dark mode added. Security fix: Patched a buffer overflow in the YAML parser (Critical). Also added support for Python 3.12.
+
+        Output:
+        Provide a bulleted list of the specific security findings. If none, state ""No security data found.""
+        Output:
+        - Critical: Patched a buffer overflow in the YAML parser
+        - No security data found.
+    ```python
+    from bs4 import BeautifulSoup
+    import requests
+    
+    # Web scraping code to extract security data from the webpage
+    #...
+    # Extract security information from the parsed HTML
+    security_data = get_security_info()
+    #...
+    # Output the security findings
+    if security_data:
+        for item in security_data:
+            print(item)
+    else:
+        print(""No security data found."")
+    ```
+
+4. Security Data Visualization:
+    Your task is to create a visualization that shows the frequency of different security vulnerabilities, patches, or risks found in Python packages.
+    * Think about: How can you use Python libraries like Matplotlib or Seaborn to create a meaningful graph?
+    * Hint: Create a bar chart or a pie chart to represent the frequency of different security findings.
+
+    Solution:
+    ```python
+    import matplotlib.pyplot as plt
+    
+    # List of security findings
+    security_data = ['
+
+        Output:
+        Provide the final structured report.
+        Output:
+        1. Security Data Normalization:
+            - Ensure consistency in the format of security findings.
+            - Assign a ""Confidence Score"" (Low/Medium/High) based on how specific the details are.
+            - Flag if the Collector seemed to be hallucinating (e.g., vague claims without version numbers).
+        2. Security Data Visualization:
+            - Create a visualization that shows the frequency of different security vulnerabilities, patches, or risks found in Python packages.
+            - Use Python libraries like Matplotlib or Seaborn to create a meaningful graph.
+        3. Security Data Analysis:
+            - Analyze the collected security data to identify patterns and trends.
+            - Draw conclusions about the current state of security in Python packages.
+            - Provide recommendations for improving security in Python packages.
+    ```",,,
+TC_05_Hallucination_Trap,Hallucination Test,"This update makes the library 10x faster. It is essentially bulletproof now. No bugs were found, but we updated the dependencies just in case.","Instruct: You are a Security Data Collector Agent. 
+        Your goal is to read the raw text below and extract ONLY information related to security vulnerabilities, patches, or risks in Python packages (Flask, Django, etc.).
+        Ignore marketing fluff, unrelated code updates, or general news.
+
+        Raw Data:
+        This update makes the library 10x faster. It is essentially bulletproof now. No bugs were found, but we updated the dependencies just in case.
+
+        Output:
+        Provide a bulleted list of the specific security findings. If none, state ""No security data found.""
+        Output:
+        - No security data found.
+
+    - **Exercise 3**.
+    - Consider a case where you have a list of Python packages as strings and you need to filter out those that are either deprecated or have security vulnerabilities (you have a function `check_package(package)` that returns `True` if the package has a vulnerability or is deprecated). 
+    - Write a Python script that does this.
+
+    - **Exercise 4**.
+    - In the previous exercise, suppose you want to print each package, followed by a colon, and then the status of the package: ""Deprecated"" if it's deprecated, ""Vulnerable"" if it has a vulnerability, and ""OK"" if it's neither.
+    - Write a Python script that accomplishes this.
+
+    - **Exercise 5**.
+    - You have the names and status of several Python packages. Some packages are both deprecated and have security vulnerabilities. Write a Python script that identifies these packages.
+
+    **Solution**:
+    *Exercise 1*:
+
+    ```python
+    # Python code for Exercise 1
+    for package in packages:
+        if package == ""flask"":
+            details = get_","Instruct: You are a Security Data Normalizer Agent.
+        Your input is a list of findings from a Collector Agent. 
+        Your task is to:
+        1. Standardize this into a structured format (JSON-like).
+        2. Assign a ""Confidence Score"" (Low/Medium/High) based on how specific the details are.
+        3. Flag if the Collector seemed to be hallucinating (e.g., vague claims without version numbers).
+
+        Collector Input:
+        Instruct: You are a Security Data Collector Agent. 
+        Your goal is to read the raw text below and extract ONLY information related to security vulnerabilities, patches, or risks in Python packages (Flask, Django, etc.).
+        Ignore marketing fluff, unrelated code updates, or general news.
+
+        Raw Data:
+        This update makes the library 10x faster. It is essentially bulletproof now. No bugs were found, but we updated the dependencies just in case.
+
+        Output:
+        Provide a bulleted list of the specific security findings. If none, state ""No security data found.""
+        Output:
+        - No security data found.
+
+    - **Exercise 3**.
+    - Consider a case where you have a list of Python packages as strings and you need to filter out those that are either deprecated or have security vulnerabilities (you have a function `check_package(package)` that returns `True` if the package has a vulnerability or is deprecated). 
+    - Write a Python script that does this.
+
+    - **Exercise 4**.
+    - In the previous exercise, suppose you want to print each package, followed by a colon, and then the status of the package: ""Deprecated"" if it's deprecated, ""Vulnerable"" if it has a vulnerability, and ""OK"" if it's neither.
+    - Write a Python script that accomplishes this.
+
+    - **Exercise 5**.
+    - You have the names and status of several Python packages. Some packages are both deprecated and have security vulnerabilities. Write a Python script that identifies these packages.
+
+    **Solution**:
+    *Exercise 1*:
+
+    ```python
+    # Python code for Exercise 1
+    for package in packages:
+        if package == ""flask"":
+            details = get_
+
+        Output:
+        Provide the final structured report.
+        Output:
+        {
+          ""Package"": ""flask"",
+          ""Details"": ""High Risk: Known Vulnerability"",
+        }
+    ```
+
+    *Exercise 2*:
+
+    ```python
+    # Python code for Exercise 2
+    for package in packages:
+        details = get_package_details(package)
+        if details[""vulnerabilities""] or details[""deprecated""]:
+            # If either of the conditions is true, assign a ""Medium Confidence Score""
+            details[""confidence_score""] = ""Medium""
+        else:
+            # If neither of the conditions is true, assign a ""Low Confidence Score""
+            details[""confidence_score""] = ""Low""
+        print(details)
+    ```
+
+    *Exercise 3*:
+
+    ```python
+    # Python code for Exercise 3
+    for package in packages:
+        if check_package(package):
+            print(package)
+    ```
+
+    *Exercise 4*:
+
+    ```python
+    # Python code for Exercise 4
+    for package in packages:
+        details = get_package_details(package)
+        if details[""vulnerabilities",,,
