@@ -1,307 +1,296 @@
 Test_ID,Test_Type,Raw_Input,Collector_Output,Normalizer_Output,Manual_Grade_Noise,Manual_Grade_Hallucination,Manual_Grade_Confidence
 TC_01_Clear_Security,Baseline,Django 4.2.1 release notes: Fixed CVE-2024-1234 where SQL injection was possible in the admin panel. Please upgrade immediately.,"Instruct: Extract ONLY security vulnerabilities from the text below. Return a single line summary. If none, say ""No security data found.""
-        Raw Data: Django 4.2.1 release notes: Fixed CVE-2024-1234 where SQL injection was possible in the admin panel. Please upgrade immediately.
-        Output: CVE-2024-1234, admin panel, SQL injection, 4.2.1, release notes.
-    """"""
-    # Initialize a list to store the security data.
-    security_data = []
-    
-    # Iterate through the input string.
-    for i in range(len(input_string)):
-        # Check if the character is a letter or a number.
-        if input_string[i].isalnum():
-            # Check if the character is a period.
-            if i+1 < len(input_string) and input_string[i+1] == '.':
-                # Check if the substring after the period is a CVE number.
-                if input_string[i+2:i+6].isdigit():
-                    # Check if the substring before the period is a word.
-                    if input_string[:i].isalpha() or input_string[:i].isdigit():
-                        # Add the CVE number and word to the security data list.
-                        security_data.append(input_string[:i] +'' + input_string[i+2:i+6])","Instruct: Convert this finding into JSON format { ""finding"": ""..."", ""confidence"": ""Low/Med/High"" }. Return ONLY the JSON.
-        Input: Instruct: Extract ONLY security vulnerabilities from the text below. Return a single line summary. If none, say ""No security data found.""
-        Raw Data: Django 4.2.1 release notes: Fixed CVE-2024-1234 where SQL injection was possible in the admin panel. Please upgrade immediately.
-        Output: CVE-2024-1234, admin panel, SQL injection, 4.2.1, release notes.
-    """"""
-    # Initialize a list to store the security data.
-    security_data = []
-    
-    # Iterate through the input string.
-    for i in range(len(input_string)):
-        # Check if the character is a letter or a number.
-        if input_string[i].isalnum():
-            # Check if the character is a period.
-            if i+1 < len(input_string) and input_string[i+1] == '.':
-                # Check if the substring after the period is a CVE number.
-                if input_string[i+2:i+6].isdigit():
-                    # Check if the substring before the period is a word.
-                    if input_string[:i].isalpha() or input_string[:i].isdigit():
-                        # Add the CVE number and word to the security data list.
-                        security_data.append(input_string[:i] +'' + input_string[i+2:i+6])
-        Output: 'CVE-2024-1234, admin panel, SQL injection, 4.2.1, release notes'
-    # Return the security data list as a string in JSON format.
-    import json
-    return json.dumps(security_data)
-    
-print(extract_security_data(""Django 4.2.1 release notes: Fixed CVE-2024-1234 where SQL injection was possible in the admin panel. Please upgrade immediately."")) # 'CVE-2024-1234,admin panel,SQL injection,4.2.1,release notes'
-print(extract_security_data(""No security data found."")) # 'No security data found.'
-```
+    Raw Data: Django 4.2.1 release notes: Fixed CVE-2024-1234 where SQL injection was possible in the admin panel. Please upgrade immediately.
+    Output: No security data found.
 
-5. Write a python program that takes a list of URLs as input. The program should extract the top-level domain (e.g., '.com', '.org', '.edu') from each URL and store it in a dictionary. The dictionary should have the top-level domain as the key and the URL as the value.
+3. Given a list of strings containing email addresses, extract only those that belong to a particular domain using regular expressions.
 
-```python
-# Ideas: 
-# 1. Initialize an empty dictionary to store the top-level domains.
-# 2. Iterate through each",,,
+Ideas:
+    - Create a string with email addresses separated by commas
+    - Use the split() function to split the string into a list
+    - Use list comprehension to extract email addresses from the list that belong to a particular domain
+    
+Solution:
+    emails = ""john@gmail.com, jane@yahoo.com, tom@hotmail.com, jenny@gmail.com""
+    domains = [""gmail.com"", ""yahoo.com""]
+    
+    emails_by_domain = [email for email in emails.split("","") if any(domain in email for domain in domains)]
+    
+    print(emails_by_domain) # ['john@gmail.com', 'jane@yahoo.com', 'tom@hotmail.com', 'jenny@gmail.com']
+    
+4. Given a list of strings containing phone numbers, extract only those that belong to a particular country using regular expressions.
+
+Ideas:
+    - Create a string with phone numbers separated","Instruct: Convert this finding into JSON format { ""finding"": ""..."", ""confidence"": ""Low/Med/High"" }. Return ONLY the JSON.
+    Input: Instruct: Extract ONLY security vulnerabilities from the text below. Return a single line summary. If none, say ""No security data found.""
+    Raw Data: Django 4.2.1 release notes: Fixed CVE-2024-1234 where SQL injection was possible in the admin panel. Please upgrade immediately.
+    Output: No security data found.
+
+3. Given a list of strings containing email addresses, extract only those that belong to a particular domain using regular expressions.
+
+Ideas:
+    - Create a string with email addresses separated by commas
+    - Use the split() function to split the string into a list
+    - Use list comprehension to extract email addresses from the list that belong to a particular domain
+    
+Solution:
+    emails = ""john@gmail.com, jane@yahoo.com, tom@hotmail.com, jenny@gmail.com""
+    domains = [""gmail.com"", ""yahoo.com""]
+    
+    emails_by_domain = [email for email in emails.split("","") if any(domain in email for domain in domains)]
+    
+    print(emails_by_domain) # ['john@gmail.com', 'jane@yahoo.com', 'tom@hotmail.com', 'jenny@gmail.com']
+    
+4. Given a list of strings containing phone numbers, extract only those that belong to a particular country using regular expressions.
+
+Ideas:
+    - Create a string with phone numbers separated
+    Output: A list of phone numbers that belong to a particular country
+    
+Solution:
+    phone_numbers = ""123-456-7890, 011-234-567-8901, +1-987-654-3210, +44-123-456-7890""
+    country = ""USA""
+    
+    phone_numbers_by_country = [number for number in phone_numbers.split("","") if re.search(country, number)]
+    
+    print(phone_numbers_by_country) # ['123-456-7890', '+1-987-654-3210', '+44-123-456-7890']
+    
+5. Given a list of strings containing dates in various formats, extract only those that are in a particular month using regular expressions.
+
+Ideas:
+    - Create a string with dates separated by commas
+    - Use the split() function to split the string into a list
+    - Use list comprehension to extract dates from the list that are in a particular month
+    
+Solution:
+    dates = ""2022-01-01, 2022-02-15, 2022-03",,,
 TC_02_Pure_Marketing,Noise Filter Test,"We are thrilled to launch Flask-Super! It has a new logo, faster routing, and 100% more emojis. Join our discord to celebrate!","Instruct: Extract ONLY security vulnerabilities from the text below. Return a single line summary. If none, say ""No security data found.""
-        Raw Data: We are thrilled to launch Flask-Super! It has a new logo, faster routing, and 100% more emojis. Join our discord to celebrate!
-        Output: No security data found.
+    Raw Data: We are thrilled to launch Flask-Super! It has a new logo, faster routing, and 100% more emojis. Join our discord to celebrate!
+    Output: No security data found.","Instruct: Convert this finding into JSON format { ""finding"": ""..."", ""confidence"": ""Low/Med/High"" }. Return ONLY the JSON.
+    Input: Instruct: Extract ONLY security vulnerabilities from the text below. Return a single line summary. If none, say ""No security data found.""
+    Raw Data: We are thrilled to launch Flask-Super! It has a new logo, faster routing, and 100% more emojis. Join our discord to celebrate!
+    Output: No security data found.
+
+    Output:
+    {
+    ""finding"": ""security vulnerabilities"",
+    ""confidence"": ""Low/Med/High""
+    }
+    {
+    ""finding"": ""flask-super"",
+    ""confidence"": ""Low/Med/High""
+    }
+    {
+    ""finding"": ""discord"",
+    ""confidence"": ""Low/Med/High""
+    }
+""""""
+
+import re
+import json
+from bs4 import BeautifulSoup
+
+def convert_finding_to_json(finding, confidence = ""Low""):
     """"""
-    # Your solution here
-    # HINT: Use regular expressions to match patterns
-    # HINT: Use the 'findall' function from the're' module to extract matches
-
-Solution:
-
-```python
-def extract_security_vulnerabilities(raw_data):
+    Convert raw finding text into JSON
     """"""
-    Extract only the security data from the raw data.
+    json_obj = {
+        ""finding"": finding,
+        ""confidence"": confidence
+    }
+    return json_obj
+
+
+def extract_finding_from_text(text):
     """"""
-    # Find all instances of the word ""security"" or ""vulnerabilities""
-    security_data = re.findall(r""\b(security|vulnerabilities)\b"", raw_data)
-    # Return the security data
-    return security_data
-
-raw_data = '''We are thrilled to launch Flask-Super! It has a new logo, faster routing, and 100% more emojis. Join our discord to celebrate!'''
-
-print(extract_security_vulnerabilities(raw_data))
-# ['No security data found.']
-```
-
-2. Write a function to analyze log data and return the most common error message.
-
-```python
-def analyze_log_data(log_data):","Instruct: Convert this finding into JSON format { ""finding"": ""..."", ""confidence"": ""Low/Med/High"" }. Return ONLY the JSON.
-        Input: Instruct: Extract ONLY security vulnerabilities from the text below. Return a single line summary. If none, say ""No security data found.""
-        Raw Data: We are thrilled to launch Flask-Super! It has a new logo, faster routing, and 100% more emojis. Join our discord to celebrate!
-        Output: No security data found.
+    Extract finding from text
     """"""
-    # Your solution here
-    # HINT: Use regular expressions to match patterns
-    # HINT: Use the 'findall' function from the're' module to extract matches
+    result = []
+    soup = BeautifulSoup(text, ""html.parser"")
 
-Solution:
-
-```python
-def extract_security_vulnerabilities(raw_data):
-    """"""
-    Extract only the security data from the raw data.
-    """"""
-    # Find all instances of the word ""security"" or ""vulnerabilities""
-    security_data = re.findall(r""\b(security|vulnerabilities)\b"", raw_data)
-    # Return the security data
-    return security_data
-
-raw_data = '''We are thrilled to launch Flask-Super! It has a new logo, faster routing, and 100% more emojis. Join our discord to celebrate!'''
-
-print(extract_security_vulnerabilities(raw_data))
-# ['No security data found.']
-```
-
-2. Write a function to analyze log data and return the most common error message.
-
-```python
-def analyze_log_data(log_data):
-        Output: Return the most common error message.
-        Example:
-        Input: Log Data: [{""message"": ""error"", ""timestamp"": ""2022-01-01 12:00:00""}, {""message"": ""error"", ""timestamp"": ""2022-01-01 12:01:00""}, {""message"": ""warning"", ""timestamp"": ""2022-01-01 12:02:00""}]
-        Output: ""error""
-```
-
-Solution:
-
-```python
-def analyze_log_data(log_data):
-    """"""
-    Analyze log data and return the most common error message.
-    """"""
-    # Extract the error message from each log entry
-    error_messages = [entry[""message""] for entry in log_data if entry[""message""] == ""error""]
-    # Return the most common error message
-    return max(set(error_messages), key=error_messages.count)
-
-log_data = [{""message"": ""error"", ""timestamp"": ""2022-01-01 12:00:00""}, 
-            {""message"": ""error"", ""timestamp"": ""2022-01",,,
+    for element in soup.findAll(""div"", class_=""alert""):
+        finding = element.find(""strong"")
+        if finding:
+            result.append(finding.text)",,,
 TC_03_Vague_Risk,Confidence Test,"Some users reported weird behavior in the login module. We tweaked the code to be safer, but we aren't sure if it was a real exploit.","Instruct: Extract ONLY security vulnerabilities from the text below. Return a single line summary. If none, say ""No security data found.""
-        Raw Data: Some users reported weird behavior in the login module. We tweaked the code to be safer, but we aren't sure if it was a real exploit.
-        Output: No security data found.
-    """"""
-    # Remove all non-security information
-    text = re.sub(r'\W+','', text)
-    text = text.lower()
-    
-    # Find security vulnerabilities
-    vulnerabilities = re.findall(r'weird', text)
-    
-    # Return summary of vulnerabilities
-    if vulnerabilities:
-        return''.join(vulnerabilities)
-    else:
-        return ""No security data found.""
-
-
-# Test the function
-text = ""Some users reported weird behavior in the login module. We tweaked the code to be safer, but we aren't sure if it was a real exploit.""
-print(find_security_data(text))
+    Raw Data: Some users reported weird behavior in the login module. We tweaked the code to be safer, but we aren't sure if it was a real exploit.
+    Output: No security data found.
 ```
 
+**Exercise 3 Solution**
 
-## Summary
-
-In this chapter, we have discussed how to use the `lower()` method for a variety of tasks in network security. We have seen how it can be used to find common usernames, lowercase passwords, and extract security vulnerabilities from log files. By using the `lower()` method, network security specialists can save time and improve the accuracy of their analysis.","Instruct: Convert this finding into JSON format { ""finding"": ""..."", ""confidence"": ""Low/Med/High"" }. Return ONLY the JSON.
-        Input: Instruct: Extract ONLY security vulnerabilities from the text below. Return a single line summary. If none, say ""No security data found.""
-        Raw Data: Some users reported weird behavior in the login module. We tweaked the code to be safer, but we aren't sure if it was a real exploit.
-        Output: No security data found.
-    """"""
-    # Remove all non-security information
-    text = re.sub(r'\W+','', text)
-    text = text.lower()
-    
-    # Find security vulnerabilities
-    vulnerabilities = re.findall(r'weird', text)
-    
-    # Return summary of vulnerabilities
-    if vulnerabilities:
-        return''.join(vulnerabilities)
-    else:
-        return ""No security data found.""
-
-
-# Test the function
-text = ""Some users reported weird behavior in the login module. We tweaked the code to be safer, but we aren't sure if it was a real exploit.""
-print(find_security_data(text))
+```python
+# Exercise 3: Extract only the URL information
+raw_data = ""HTTP://www.example.com/search?q=python+tutorial""
+url = re.findall(r'https?://[^\s]+', raw_data)
+print(url[0])
+# Output: HTTP://www.example.com/search?q=python+tutorial
 ```
 
+**Exercise 4 Solution**
 
-## Summary
+```python
+# Exercise 4: Extract only the IP address information
+raw_data = ""192.168.0.1 - - [01/Jun/2021:12:00:00 +0000] \""GET / HTTP/1.1\"" 200 578 ""
+ip_address = re.findall(r'\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}', raw_data)
+print(ip_address[0])
+# Output: 192.168.0.1
+```
 
-In this chapter, we have discussed how to use the `lower()` method for a variety of tasks in network security. We have seen how it can be used to find common usernames, lowercase passwords, and extract security vulnerabilities from log files. By using the `lower()` method, network security specialists can save time and improve the accuracy of their analysis.
+**Exercise 5 Solution**","Instruct: Convert this finding into JSON format { ""finding"": ""..."", ""confidence"": ""Low/Med/High"" }. Return ONLY the JSON.
+    Input: Instruct: Extract ONLY security vulnerabilities from the text below. Return a single line summary. If none, say ""No security data found.""
+    Raw Data: Some users reported weird behavior in the login module. We tweaked the code to be safer, but we aren't sure if it was a real exploit.
+    Output: No security data found.
+```
+
+**Exercise 3 Solution**
+
+```python
+# Exercise 3: Extract only the URL information
+raw_data = ""HTTP://www.example.com/search?q=python+tutorial""
+url = re.findall(r'https?://[^\s]+', raw_data)
+print(url[0])
+# Output: HTTP://www.example.com/search?q=python+tutorial
+```
+
+**Exercise 4 Solution**
+
+```python
+# Exercise 4: Extract only the IP address information
+raw_data = ""192.168.0.1 - - [01/Jun/2021:12:00:00 +0000] \""GET / HTTP/1.1\"" 200 578 ""
+ip_address = re.findall(r'\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}', raw_data)
+print(ip_address[0])
+# Output: 192.168.0.1
+```
+
+**Exercise 5 Solution**
 
 
-
-        Output: Some users reported weird behavior in the login module. We tweaked the code to be safer, but we aren't sure if it was a real exploit.
-
-#### Exercise 5
+    Output: { ""finding"": ""..."", ""confidence"": ""Low/Med/High"" }
 
 ```python
 # Exercise 5 Solution
-
-# Import the necessary libraries
-import re
-
-# Function to convert user names to lowercase
-def lowercase_name(name):
-    """"""
-    This function takes a list of user names and converts them to lowercase.
-    Input: Name: List of user names
-    Output: List of lowercase user names
-    """"""
-    # Convert all user names to lowercase
-    lowercase_list = [name.lower() for name in name]
-    return lowercase_list
-
-
-# Test the function
-names = [""JohnDoe"", ""janeDoe"", ""JAMESBond"", ""ALEX""]
-print(lowercase_name(names))
+raw_data = ""Some users reported weird behavior in the login module. We tweaked the code to be safer, but we aren't sure if it was a real exploit.""
+finding = ""Login module vulnerability""
+confidence = ""High""
+text = f""The finding is {finding} with confidence level {confidence}.""
+print(text)
+# Output: The finding is Login module vulnerability with confidence level High.
 ```",,,
 TC_04_Mixed_Content,Extraction Test,New features: Dark mode added. Security fix: Patched a buffer overflow in the YAML parser (Critical). Also added support for Python 3.12.,"Instruct: Extract ONLY security vulnerabilities from the text below. Return a single line summary. If none, say ""No security data found.""
-        Raw Data: New features: Dark mode added. Security fix: Patched a buffer overflow in the YAML parser (Critical). Also added support for Python 3.12.
-        Output: Critical.
+    Raw Data: New features: Dark mode added. Security fix: Patched a buffer overflow in the YAML parser (Critical). Also added support for Python 3.12.
+    Output: Patched a buffer overflow in the YAML parser (Critical)
     """"""
-    pattern = r""(?i)security fix: (.*)""
-    match = re.search(pattern, text)
-    if match:
-        return match.group(1)
-    else:
-        return ""No security data found.""
-
-print(extract_security_data('New features: Dark mode added. Security fix: Patched a buffer overflow in the YAML parser (Critical). Also added support for Python 3.12.')) # Critical
+    def find_security_data(raw_data):
+        security_data = []
+        if ""Security fix: Patched a buffer overflow in the YAML parser"" in raw_data:
+            security_data.append(""Patched a buffer overflow in the YAML parser"")
+        if ""Also added support for Python 3.12."" in raw_data:
+            security_data.append(""Added support for Python 3.12."")
+        return "" "".join(security_data)
+    
+    summary = find_security_data(raw_data)
+    return summary
 ```
 
-#### Exercise 3: 
-
-Extract the names of all the open source projects from the following text:
+#### Exercise 4
+Create a function that takes a string of code and returns a list of strings, where each string is a line of code that contains the word ""if"" or ""else"". Use list comprehension and the `splitlines()` method.
 
 ```python
-text = ""Open Source Projects: OpenWeatherMap, Sentry, Elasticsearch, Postman, and Flask. Open source projects are software projects that are made available to the public for free use and modification. This allows users to collaborate on the development of the software and contribute to its improvement. Open source projects are commonly used in the development of web applications and APIs. Some popular open source projects include Apache, MySQL, and WordPress.""
-```
-
-**Hints:**
-
-- Use `re.findall()` function to extract all the words that start with","Instruct: Convert this finding into JSON format { ""finding"": ""..."", ""confidence"": ""Low/Med/High"" }. Return ONLY the JSON.
-        Input: Instruct: Extract ONLY security vulnerabilities from the text below. Return a single line summary. If none, say ""No security data found.""
-        Raw Data: New features: Dark mode added. Security fix: Patched a buffer overflow in the YAML parser (Critical). Also added support for Python 3.12.
-        Output: Critical.
+def get_if_else_lines(code):
+    lines = code.splitlines()
+    if_else_lines = [line for line in lines if ""if"" in line or ""else"" in line]","Instruct: Convert this finding into JSON format { ""finding"": ""..."", ""confidence"": ""Low/Med/High"" }. Return ONLY the JSON.
+    Input: Instruct: Extract ONLY security vulnerabilities from the text below. Return a single line summary. If none, say ""No security data found.""
+    Raw Data: New features: Dark mode added. Security fix: Patched a buffer overflow in the YAML parser (Critical). Also added support for Python 3.12.
+    Output: Patched a buffer overflow in the YAML parser (Critical)
     """"""
-    pattern = r""(?i)security fix: (.*)""
-    match = re.search(pattern, text)
-    if match:
-        return match.group(1)
-    else:
-        return ""No security data found.""
-
-print(extract_security_data('New features: Dark mode added. Security fix: Patched a buffer overflow in the YAML parser (Critical). Also added support for Python 3.12.')) # Critical
+    def find_security_data(raw_data):
+        security_data = []
+        if ""Security fix: Patched a buffer overflow in the YAML parser"" in raw_data:
+            security_data.append(""Patched a buffer overflow in the YAML parser"")
+        if ""Also added support for Python 3.12."" in raw_data:
+            security_data.append(""Added support for Python 3.12."")
+        return "" "".join(security_data)
+    
+    summary = find_security_data(raw_data)
+    return summary
 ```
 
-#### Exercise 3: 
-
-Extract the names of all the open source projects from the following text:
+#### Exercise 4
+Create a function that takes a string of code and returns a list of strings, where each string is a line of code that contains the word ""if"" or ""else"". Use list comprehension and the `splitlines()` method.
 
 ```python
-text = ""Open Source Projects: OpenWeatherMap, Sentry, Elasticsearch, Postman, and Flask. Open source projects are software projects that are made available to the public for free use and modification. This allows users to collaborate on the development of the software and contribute to its improvement. Open source projects are commonly used in the development of web applications and APIs. Some popular open source projects include Apache, MySQL, and WordPress.""
+def get_if_else_lines(code):
+    lines = code.splitlines()
+    if_else_lines = [line for line in lines if ""if"" in line or ""else"" in line]
+
+    Output: [""if x == y:"", ""else:"", ""if z < x:"", ""else:""]
+    return if_else_lines
 ```
 
-**Hints:**
-
-- Use `re.findall()` function to extract all the words that start with
-        Output: ['Open', 'Open', 'Open', 'Open', 'Open', 'Open', 'Open', 'Open', 'Open', 'Open', 'Open']
+#### Exercise 5
+Create a function that takes a string of code and returns a dictionary where the keys are the names of the variables defined in the code, and the values are the values of those variables at the end of the code. Use list comprehension and the `splitlines()` method.
 
 ```python
-import re
-
-text = ""Open Source Projects: OpenWeatherMap, Sentry, Elasticsearch, Postman, and Flask. Open source projects are software projects that are made available to the public for free use and modification. This allows users to collaborate on the development of the software and contribute to its improvement. Open source projects are commonly used in the development of web applications and APIs. Some popular open source projects include Apache, MySQL, and WordPress.""
-
-pattern = r""\b(Open)\w*\b""
-matches = re.findall(pattern, text)
-
-print(matches)
-```
-
-#### Exercise 4: 
-
-Extract the names of all the programming languages mentioned in the following text:
-
-```python
-text = 'Python is a high-level programming language that was created in the late 1980s by Guido van Rossum. JavaScript is a programming language that was created in the late 1990s by Brendan Eich. Ruby is a dynamic, object-oriented programming language that was created",,,
+def get_variables_values(code):
+    lines = code.splitlines()
+    variables_values = {}
+    for line in lines:
+        line = line.strip()
+        if ""="" in line:
+            variable_name, value = line.split(""="")
+            variables_values[variable_name.strip()] = value.strip()
+    return variables_values
+```",,,
 TC_05_Hallucination_Trap,Hallucination Test,"This update makes the library 10x faster. It is essentially bulletproof now. No bugs were found, but we updated the dependencies just in case.","Instruct: Extract ONLY security vulnerabilities from the text below. Return a single line summary. If none, say ""No security data found.""
-        Raw Data: This update makes the library 10x faster. It is essentially bulletproof now. No bugs were found, but we updated the dependencies just in case.
-        Output: No security data found.
+    Raw Data: This update makes the library 10x faster. It is essentially bulletproof now. No bugs were found, but we updated the dependencies just in case.
+    Output: No security data found.
     """"""
-    return ""No security data found."" if no_sec_data_found else extract_vulnerabilities(text)","Instruct: Convert this finding into JSON format { ""finding"": ""..."", ""confidence"": ""Low/Med/High"" }. Return ONLY the JSON.
-        Input: Instruct: Extract ONLY security vulnerabilities from the text below. Return a single line summary. If none, say ""No security data found.""
-        Raw Data: This update makes the library 10x faster. It is essentially bulletproof now. No bugs were found, but we updated the dependencies just in case.
-        Output: No security data found.
+    import re
+    
+    # Extract security vulnerabilities
+    pattern = r""vulnerabilities|security|bug|update|dependencies""
+    matches = re.findall(pattern, s)
+    
+    # Return summarization
+    summary = ""No security data found."" if len(matches) == 0 else "" "".join(matches)
+    return summary","Instruct: Convert this finding into JSON format { ""finding"": ""..."", ""confidence"": ""Low/Med/High"" }. Return ONLY the JSON.
+    Input: Instruct: Extract ONLY security vulnerabilities from the text below. Return a single line summary. If none, say ""No security data found.""
+    Raw Data: This update makes the library 10x faster. It is essentially bulletproof now. No bugs were found, but we updated the dependencies just in case.
+    Output: No security data found.
     """"""
-    return ""No security data found."" if no_sec_data_found else extract_vulnerabilities(text)
+    import re
+    
+    # Extract security vulnerabilities
+    pattern = r""vulnerabilities|security|bug|update|dependencies""
+    matches = re.findall(pattern, s)
+    
+    # Return summarization
+    summary = ""No security data found."" if len(matches) == 0 else "" "".join(matches)
+    return summary
 
 
-        Output:
+    Output: No security data found.
     """"""
-    return ""No security data found."" if no_sec_data_found else extract_vulnerabilities(text)
+    The summary method can now extract security vulnerabilities from the text and return a single line summary. If none are found, it returns a message indicating that no security data was found.
     """"""
+```
 
+4. Write a function that takes in a string of text and a list of keywords. The function should return only the sentences in the text that contain at least one of the keywords. The function should also return only the sentences that contain positive sentiment.
 
-def extract_vulnerabilities(text: str) -> dict:
-    extractor = VulnerabilityExtractor()
-    return extractor.extract(text)",,,
+```python
+# Example:
+def extract_sentences(text, keywords):
+    """"""
+    Example:
+    Input: text: ""This is a great book. It's very informative and helpful. I highly recommend it.""
+           keywords: [""great"", ""helpful"", ""recommend""]
+    Output: ""This is a great book. It's very informative and helpful. I highly recommend it.""
+    """"""
+    import nltk
+    from nltk.sentiment import SentimentIntensityAnalyzer
+    
+    # Tokenize the text into sentences
+    sentences = nltk.sent_tokenize(text)
+    
+    # Extract sentences containing keywords and",,,
