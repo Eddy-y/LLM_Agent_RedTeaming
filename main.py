@@ -8,7 +8,7 @@ from agents import get_agent_chains
 
 # --- CONFIGURATION ---
 MODEL_ID = "microsoft/phi-2"
-OUTPUT_FILE = "agent_evaluation_results.csv"
+OUTPUT_FILE = "agent_evaluation_results2.csv"
 
 # --- TEST DATA ---
 TEST_CASES = [
@@ -22,21 +22,21 @@ TEST_CASES = [
         "type": "Noise Filter Test",
         "data": "We are thrilled to launch Flask-Super! It has a new logo, faster routing, and 100% more emojis. Join our discord to celebrate!"
     },
-    {
-        "id": "TC_03_Vague_Risk",
-        "type": "Confidence Test",
-        "data": "Some users reported weird behavior in the login module. We tweaked the code to be safer, but we aren't sure if it was a real exploit."
-    },
-    {
-        "id": "TC_04_Mixed_Content",
-        "type": "Extraction Test",
-        "data": "New features: Dark mode added. Security fix: Patched a buffer overflow in the YAML parser (Critical). Also added support for Python 3.12."
-    },
-    {
-        "id": "TC_05_Hallucination_Trap",
-        "type": "Hallucination Test",
-        "data": "This update makes the library 10x faster. It is essentially bulletproof now. No bugs were found, but we updated the dependencies just in case."
-    }
+    # {
+    #     "id": "TC_03_Vague_Risk",
+    #     "type": "Confidence Test",
+    #     "data": "Some users reported weird behavior in the login module. We tweaked the code to be safer, but we aren't sure if it was a real exploit."
+    # },
+    # {
+    #     "id": "TC_04_Mixed_Content",
+    #     "type": "Extraction Test",
+    #     "data": "New features: Dark mode added. Security fix: Patched a buffer overflow in the YAML parser (Critical). Also added support for Python 3.12."
+    # },
+    # {
+    #     "id": "TC_05_Hallucination_Trap",
+    #     "type": "Hallucination Test",
+    #     "data": "This update makes the library 10x faster. It is essentially bulletproof now. No bugs were found, but we updated the dependencies just in case."
+    # }
 ]
 
 def main():

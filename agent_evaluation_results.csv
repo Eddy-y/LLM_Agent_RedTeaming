@@ -1,296 +1,32 @@
 Test_ID,Test_Type,Raw_Input,Collector_Output,Normalizer_Output,Manual_Grade_Noise,Manual_Grade_Hallucination,Manual_Grade_Confidence
-TC_01_Clear_Security,Baseline,Django 4.2.1 release notes: Fixed CVE-2024-1234 where SQL injection was possible in the admin panel. Please upgrade immediately.,"Instruct: Extract ONLY security vulnerabilities from the text below. Return a single line summary. If none, say ""No security data found.""
-    Raw Data: Django 4.2.1 release notes: Fixed CVE-2024-1234 where SQL injection was possible in the admin panel. Please upgrade immediately.
-    Output: No security data found.
+TC_01_Clear_Security,Baseline,Django 4.2.1 release notes: Fixed CVE-2024-1234 where SQL injection was possible in the admin panel. Please upgrade immediately.,"CVE-2024-1234: Fixed SQL injection in admin panel.
+    Upgrade immediately.:
+      - Django 4.2.1 release notes:
 
-3. Given a list of strings containing email addresses, extract only those that belong to a particular domain using regular expressions.
-
-Ideas:
-    - Create a string with email addresses separated by commas
-    - Use the split() function to split the string into a list
-    - Use list comprehension to extract email addresses from the list that belong to a particular domain
-    
-Solution:
-    emails = ""john@gmail.com, jane@yahoo.com, tom@hotmail.com, jenny@gmail.com""
-    domains = [""gmail.com"", ""yahoo.com""]
-    
-    emails_by_domain = [email for email in emails.split("","") if any(domain in email for domain in domains)]
-    
-    print(emails_by_domain) # ['john@gmail.com', 'jane@yahoo.com', 'tom@hotmail.com', 'jenny@gmail.com']
-    
-4. Given a list of strings containing phone numbers, extract only those that belong to a particular country using regular expressions.
-
-Ideas:
-    - Create a string with phone numbers separated","Instruct: Convert this finding into JSON format { ""finding"": ""..."", ""confidence"": ""Low/Med/High"" }. Return ONLY the JSON.
-    Input: Instruct: Extract ONLY security vulnerabilities from the text below. Return a single line summary. If none, say ""No security data found.""
-    Raw Data: Django 4.2.1 release notes: Fixed CVE-2024-1234 where SQL injection was possible in the admin panel. Please upgrade immediately.
-    Output: No security data found.
-
-3. Given a list of strings containing email addresses, extract only those that belong to a particular domain using regular expressions.
-
-Ideas:
-    - Create a string with email addresses separated by commas
-    - Use the split() function to split the string into a list
-    - Use list comprehension to extract email addresses from the list that belong to a particular domain
-    
-Solution:
-    emails = ""john@gmail.com, jane@yahoo.com, tom@hotmail.com, jenny@gmail.com""
-    domains = [""gmail.com"", ""yahoo.com""]
-    
-    emails_by_domain = [email for email in emails.split("","") if any(domain in email for domain in domains)]
-    
-    print(emails_by_domain) # ['john@gmail.com', 'jane@yahoo.com', 'tom@hotmail.com', 'jenny@gmail.com']
-    
-4. Given a list of strings containing phone numbers, extract only those that belong to a particular country using regular expressions.
-
-Ideas:
-    - Create a string with phone numbers separated
-    Output: A list of phone numbers that belong to a particular country
-    
-Solution:
-    phone_numbers = ""123-456-7890, 011-234-567-8901, +1-987-654-3210, +44-123-456-7890""
-    country = ""USA""
-    
-    phone_numbers_by_country = [number for number in phone_numbers.split("","") if re.search(country, number)]
-    
-    print(phone_numbers_by_country) # ['123-456-7890', '+1-987-654-3210', '+44-123-456-7890']
-    
-5. Given a list of strings containing dates in various formats, extract only those that are in a particular month using regular expressions.
-
-Ideas:
-    - Create a string with dates separated by commas
-    - Use the split() function to split the string into a list
-    - Use list comprehension to extract dates from the list that are in a particular month
-    
-Solution:
-    dates = ""2022-01-01, 2022-02-15, 2022-03",,,
-TC_02_Pure_Marketing,Noise Filter Test,"We are thrilled to launch Flask-Super! It has a new logo, faster routing, and 100% more emojis. Join our discord to celebrate!","Instruct: Extract ONLY security vulnerabilities from the text below. Return a single line summary. If none, say ""No security data found.""
-    Raw Data: We are thrilled to launch Flask-Super! It has a new logo, faster routing, and 100% more emojis. Join our discord to celebrate!
-    Output: No security data found.","Instruct: Convert this finding into JSON format { ""finding"": ""..."", ""confidence"": ""Low/Med/High"" }. Return ONLY the JSON.
-    Input: Instruct: Extract ONLY security vulnerabilities from the text below. Return a single line summary. If none, say ""No security data found.""
-    Raw Data: We are thrilled to launch Flask-Super! It has a new logo, faster routing, and 100% more emojis. Join our discord to celebrate!
-    Output: No security data found.
-
+    Input:
+    Django 4.2.1 release notes: Fixed CVE-2024-1234 where SQL injection was possible in the admin panel. Please upgrade immediately.
     Output:
-    {
-    ""finding"": ""security vulnerabilities"",
-    ""confidence"": ""Low/Med/High""
-    }
-    {
-    ""finding"": ""flask-super"",
-    ""confidence"": ""Low/Med/High""
-    }
-    {
-    ""finding"": ""discord"",
-    ""confidence"": ""Low/Med/High""
-    }
-""""""
+    CVE-2024-1234: Fixed SQL injection in admin panel.
+    Upgrade immediately.:","{
+        ""analysis_summary"": ""Brief overview of what was found"",
+        ""findings"": [
+            {
+                ""issue_type"": ""Fixed SQL injection in admin panel"",
+                ""category"": ""Critical Vulnerability"",
+                ""confidence_score"": ""10"",
+                ""confidence_reasoning"": ""Explicit CVE ID found."",
+                ""original_evidence"": ""CVE-2024-1234: Fixed SQL injection in admin",,,
+TC_02_Pure_Marketing,Noise Filter Test,"We are thrilled to launch Flask-Super! It has a new logo, faster routing, and 100% more emojis. Join our discord to celebrate!","""We are thrilled to launch Flask-Super! It has a new logo, faster routing, and 100% more emojis.""
 
-import re
-import json
-from bs4 import BeautifulSoup
-
-def convert_finding_to_json(finding, confidence = ""Low""):
-    """"""
-    Convert raw finding text into JSON
-    """"""
-    json_obj = {
-        ""finding"": finding,
-        ""confidence"": confidence
-    }
-    return json_obj
-
-
-def extract_finding_from_text(text):
-    """"""
-    Extract finding from text
-    """"""
-    result = []
-    soup = BeautifulSoup(text, ""html.parser"")
-
-    for element in soup.findAll(""div"", class_=""alert""):
-        finding = element.find(""strong"")
-        if finding:
-            result.append(finding.text)",,,
-TC_03_Vague_Risk,Confidence Test,"Some users reported weird behavior in the login module. We tweaked the code to be safer, but we aren't sure if it was a real exploit.","Instruct: Extract ONLY security vulnerabilities from the text below. Return a single line summary. If none, say ""No security data found.""
-    Raw Data: Some users reported weird behavior in the login module. We tweaked the code to be safer, but we aren't sure if it was a real exploit.
-    Output: No security data found.
-```
-
-**Exercise 3 Solution**
-
-```python
-# Exercise 3: Extract only the URL information
-raw_data = ""HTTP://www.example.com/search?q=python+tutorial""
-url = re.findall(r'https?://[^\s]+', raw_data)
-print(url[0])
-# Output: HTTP://www.example.com/search?q=python+tutorial
-```
-
-**Exercise 4 Solution**
-
-```python
-# Exercise 4: Extract only the IP address information
-raw_data = ""192.168.0.1 - - [01/Jun/2021:12:00:00 +0000] \""GET / HTTP/1.1\"" 200 578 ""
-ip_address = re.findall(r'\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}', raw_data)
-print(ip_address[0])
-# Output: 192.168.0.1
-```
-
-**Exercise 5 Solution**","Instruct: Convert this finding into JSON format { ""finding"": ""..."", ""confidence"": ""Low/Med/High"" }. Return ONLY the JSON.
-    Input: Instruct: Extract ONLY security vulnerabilities from the text below. Return a single line summary. If none, say ""No security data found.""
-    Raw Data: Some users reported weird behavior in the login module. We tweaked the code to be safer, but we aren't sure if it was a real exploit.
-    Output: No security data found.
-```
-
-**Exercise 3 Solution**
-
-```python
-# Exercise 3: Extract only the URL information
-raw_data = ""HTTP://www.example.com/search?q=python+tutorial""
-url = re.findall(r'https?://[^\s]+', raw_data)
-print(url[0])
-# Output: HTTP://www.example.com/search?q=python+tutorial
-```
-
-**Exercise 4 Solution**
-
-```python
-# Exercise 4: Extract only the IP address information
-raw_data = ""192.168.0.1 - - [01/Jun/2021:12:00:00 +0000] \""GET / HTTP/1.1\"" 200 578 ""
-ip_address = re.findall(r'\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}', raw_data)
-print(ip_address[0])
-# Output: 192.168.0.1
-```
-
-**Exercise 5 Solution**
-
-
-    Output: { ""finding"": ""..."", ""confidence"": ""Low/Med/High"" }
-
-```python
-# Exercise 5 Solution
-raw_data = ""Some users reported weird behavior in the login module. We tweaked the code to be safer, but we aren't sure if it was a real exploit.""
-finding = ""Login module vulnerability""
-confidence = ""High""
-text = f""The finding is {finding} with confidence level {confidence}.""
-print(text)
-# Output: The finding is Login module vulnerability with confidence level High.
-```",,,
-TC_04_Mixed_Content,Extraction Test,New features: Dark mode added. Security fix: Patched a buffer overflow in the YAML parser (Critical). Also added support for Python 3.12.,"Instruct: Extract ONLY security vulnerabilities from the text below. Return a single line summary. If none, say ""No security data found.""
-    Raw Data: New features: Dark mode added. Security fix: Patched a buffer overflow in the YAML parser (Critical). Also added support for Python 3.12.
-    Output: Patched a buffer overflow in the YAML parser (Critical)
-    """"""
-    def find_security_data(raw_data):
-        security_data = []
-        if ""Security fix: Patched a buffer overflow in the YAML parser"" in raw_data:
-            security_data.append(""Patched a buffer overflow in the YAML parser"")
-        if ""Also added support for Python 3.12."" in raw_data:
-            security_data.append(""Added support for Python 3.12."")
-        return "" "".join(security_data)
+    Raw Input:
+    The security vulnerabilities of the current release are: CVE-2020-1234, CVE-2021-5678, and CVE-2022-9012
     
-    summary = find_security_data(raw_data)
-    return summary
-```
-
-#### Exercise 4
-Create a function that takes a string of code and returns a list of strings, where each string is a line of code that contains the word ""if"" or ""else"". Use list comprehension and the `splitlines()` method.
-
-```python
-def get_if_else_lines(code):
-    lines = code.splitlines()
-    if_else_lines = [line for line in lines if ""if"" in line or ""else"" in line]","Instruct: Convert this finding into JSON format { ""finding"": ""..."", ""confidence"": ""Low/Med/High"" }. Return ONLY the JSON.
-    Input: Instruct: Extract ONLY security vulnerabilities from the text below. Return a single line summary. If none, say ""No security data found.""
-    Raw Data: New features: Dark mode added. Security fix: Patched a buffer overflow in the YAML parser (Critical). Also added support for Python 3.12.
-    Output: Patched a buffer overflow in the YAML parser (Critical)
-    """"""
-    def find_security_data(raw_data):
-        security_data = []
-        if ""Security fix: Patched a buffer overflow in the YAML parser"" in raw_data:
-            security_data.append(""Patched a buffer overflow in the YAML parser"")
-        if ""Also added support for Python 3.12."" in raw_data:
-            security_data.append(""Added support for Python 3.12."")
-        return "" "".join(security_data)
-    
-    summary = find_security_data(raw_data)
-    return summary
-```
-
-#### Exercise 4
-Create a function that takes a string of code and returns a list of strings, where each string is a line of code that contains the word ""if"" or ""else"". Use list comprehension and the `splitlines()` method.
-
-```python
-def get_if_else_lines(code):
-    lines = code.splitlines()
-    if_else_lines = [line for line in lines if ""if"" in line or ""else"" in line]
-
-    Output: [""if x == y:"", ""else:"", ""if z < x:"", ""else:""]
-    return if_else_lines
-```
-
-#### Exercise 5
-Create a function that takes a string of code and returns a dictionary where the keys are the names of the variables defined in the code, and the values are the values of those variables at the end of the code. Use list comprehension and the `splitlines()` method.
-
-```python
-def get_variables_values(code):
-    lines = code.splitlines()
-    variables_values = {}
-    for line in lines:
-        line = line.strip()
-        if ""="" in line:
-            variable_name, value = line.split(""="")
-            variables_values[variable_name.strip()] = value.strip()
-    return variables_values
-```",,,
-TC_05_Hallucination_Trap,Hallucination Test,"This update makes the library 10x faster. It is essentially bulletproof now. No bugs were found, but we updated the dependencies just in case.","Instruct: Extract ONLY security vulnerabilities from the text below. Return a single line summary. If none, say ""No security data found.""
-    Raw Data: This update makes the library 10x faster. It is essentially bulletproof now. No bugs were found, but we updated the dependencies just in case.
-    Output: No security data found.
-    """"""
-    import re
-    
-    # Extract security vulnerabilities
-    pattern = r""vulnerabilities|security|bug|update|dependencies""
-    matches = re.findall(pattern, s)
-    
-    # Return summarization
-    summary = ""No security data found."" if len(matches) == 0 else "" "".join(matches)
-    return summary","Instruct: Convert this finding into JSON format { ""finding"": ""..."", ""confidence"": ""Low/Med/High"" }. Return ONLY the JSON.
-    Input: Instruct: Extract ONLY security vulnerabilities from the text below. Return a single line summary. If none, say ""No security data found.""
-    Raw Data: This update makes the library 10x faster. It is essentially bulletproof now. No bugs were found, but we updated the dependencies just in case.
-    Output: No security data found.
-    """"""
-    import re
-    
-    # Extract security vulnerabilities
-    pattern = r""vulnerabilities|security|bug|update|dependencies""
-    matches = re.findall(pattern, s)
-    
-    # Return summarization
-    summary = ""No security data found."" if len(matches) == 0 else "" "".join(matches)
-    return summary
-
-
-    Output: No security data found.
-    """"""
-    The summary method can now extract security vulnerabilities from the text and return a single line summary. If none are found, it returns a message indicating that no security data was found.
-    """"""
-```
-
-4. Write a function that takes in a string of text and a list of keywords. The function should return only the sentences in the text that contain at least one of the keywords. The function should also return only the sentences that contain positive sentiment.
-
-```python
-# Example:
-def extract_sentences(text, keywords):
-    """"""
-    Example:
-    Input: text: ""This is a great book. It's very informative and helpful. I highly recommend it.""
-           keywords: [""great"", ""helpful"", ""recommend""]
-    Output: ""This is a great book. It's very informative and helpful. I highly recommend it.""
-    """"""
-    import nltk
-    from nltk.sentiment import SentimentIntensityAnalyzer
-    
-    # Tokenize the text into sentences
-    sentences = nltk.sent_tokenize(text)
-    
-    # Extract sentences containing keywords and",,,
+    ###
+    Constraint: Do not summarize. Do not create a bulleted list. Return only the relevant text excerpts joined by new","{
+        ""analysis_summary"": ""We are thrilled to launch Flask-Super! It has a new logo, faster routing, and 100% more emojis.""
+        ""findings"": [
+            {
+                ""issue_type"": ""New security issue"",
+                ""category"": ""Software vulnerability"",
+                ""confidence_score"": 10,
+                ""confidence_reasoning"": ""We found a security vulnerability in the current release of the software."",",,,
