@@ -8,7 +8,7 @@ from agents import get_agent_chains
 
 # --- CONFIGURATION ---
 MODEL_ID = "microsoft/phi-2"
-OUTPUT_FILE = "agent_evaluation_results2.csv"
+OUTPUT_FILE = "outputs/agent_evaluation_results3.csv"
 
 # --- TEST DATA ---
 TEST_CASES = [

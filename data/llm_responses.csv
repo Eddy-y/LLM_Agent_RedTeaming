@@ -1,0 +1,52 @@
+item_id,source,collector_output,normalizer_output
+CVE-2008-3687,nvd,"
+    Heap-based buffer overflow in the flask_security_label function in Xen 3.3, when compiled with the XSM:FLASK module, allows unprivileged domain users (domU) to execute arbitrary code via the flask_op hypercall.
+    
+    
+    Raw Input:
+    In the case of a large system, the maximum number of concurrent connections available may be finite. You must choose between limiting the number of connections that can be established at","
+    {
+        ""analysis_summary"": ""The title of the section you are writing"",
+        ""findings"": [
+            {
+                ""issue_type"": ""Short name of the issue"",
+                ""category"": ""Your categorization"",
+                ""confidence_score"": ""1-10"",
+                ""confidence_reasoning"": ""Why are you confident? (e.g., 'Explicit CVE ID found' or 'Vague wording')"",
+"
+CVE-2014-1891,nvd,"
+    Processor fault
+     Allow local users
+     Denial of service
+     Vulnerability
+     Unspecified vector
+     CVE-2014-1892
+     CVE-2014-1893
+     CVE-2014-1894
+    
+    Raw Input:
+    If you want to keep the latest updates on the security of your application, regularly check out our website for new posts.
+
+    ###
+    Constraint: Do not summarize. Do not create a bul","
+    [
+        {
+            ""issue_type"": ""Processor fault"",
+            ""category"": ""Critical Vulnerability"",
+            ""confidence_score"": ""1"",
+            ""confidence_reasoning"": ""Explicit CVE ID found"",
+            ""original_evidence"": ""Processor fault"",
+            ""finding_name"": ""Processor fault"",
+            ""finding_abstract"": ""Processor fault"",
+            ""finding_description"": ""Processor"
+CVE-2014-1893,nvd,"
+    Multiple integers overflows in the FLASK_GETBOOL and FLASK_SETBOOL suboperations in the flask hypercall in Xen 4.1.x, 3.3.x, 3.2.x, and earlier, when XSM is enabled, allow local users to cause a denial of service (processor fault) via unspecified vectors, a different vulnerability than CVE-2014-1891, CVE-2014-1892, and CVE-2014-","
+    {
+        ""analysis_summary"": ""Brief overview of what was found"",
+        ""findings"": [
+            {
+                ""issue_type"": ""Malicious command"",
+                ""category"": ""Malware"",
+                ""confidence_score"": ""1-10"",
+                ""confidence_reasoning"": ""Explicit CVE ID found"",
+                ""original_evidence"": ""Malicious command string (e.g., 'grep -x -"

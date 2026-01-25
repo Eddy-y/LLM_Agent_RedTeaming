@@ -1,4 +1,8 @@
 Test_ID,Test_Type,Raw_Input,Collector_Output,Normalizer_Output,Manual_Grade_Noise,Manual_Grade_Hallucination,Manual_Grade_Confidence
+
+
+
+
 TC_01_Clear_Security,Baseline,Django 4.2.1 release notes: Fixed CVE-2024-1234 where SQL injection was possible in the admin panel. Please upgrade immediately.,"Django 4.2.1 release notes: Fixed CVE-2024-1234 where SQL injection was possible in the admin panel. Please upgrade immediately.
     FIX_CVE_2024_1234_SQL_INJECTION_POSSIBLE_ADMIN_PANEL
     
@@ -12,6 +16,8 @@ TC_01_Clear_Security,Baseline,Django 4.2.1 release notes: Fixed CVE-2024-1234 wh
                 ""category"": ""Critical Vulnerability"",
                 ""confidence_score"": 8,
                 ""confidence_reasoning"": ""Explicit CVE ID",,,
+
+
 TC_02_Pure_Marketing,Noise Filter Test,"We are thrilled to launch Flask-Super! It has a new logo, faster routing, and 100% more emojis. Join our discord to celebrate!","We are thrilled to launch Flask-Super!
     It has a new logo, faster routing, and 100% more emojis.
     Join our discord to celebrate!
