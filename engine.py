@@ -12,7 +12,7 @@ def load_optimized_pipeline(model_id):
     # Common settings to prevent "run-on" text and hallucinated exercises
     pipeline_kwargs = {
         "tokenizer": tokenizer,
-        "max_new_tokens": 100,       # Limit output length
+        "max_new_tokens": 300,       # Limit output length
         "return_full_text": False,   # Don't repeat the prompt in the output
         "pad_token_id": tokenizer.eos_token_id,
         "eos_token_id": tokenizer.eos_token_id
@@ -24,7 +24,7 @@ def load_optimized_pipeline(model_id):
         model = AutoModelForCausalLM.from_pretrained(
             model_id, 
             torch_dtype=torch.float16, 
-            trust_remote_code=True
+            trust_remote_code=False
         )
         # Fix: Pass device=0 directly here
         return pipeline("text-generation", model=model, device=0, **pipeline_kwargs)
@@ -58,6 +58,6 @@ def load_optimized_pipeline(model_id):
         device = "cpu"
 
     # Load standard model for Mac/CPU
-    model = AutoModelForCausalLM.from_pretrained(model_id, trust_remote_code=True)
+    model = AutoModelForCausalLM.from_pretrained(model_id, trust_remote_code=False)
 
     return pipeline("text-generation", model=model, device=device, **pipeline_kwargs)

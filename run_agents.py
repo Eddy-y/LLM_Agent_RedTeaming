@@ -12,10 +12,9 @@ from langchain_huggingface import HuggingFacePipeline
 
 # --- CONFIGURATION ---
 DB_PATH = Path("data/pipeline.sqlite")
-#OUTPUT_FILE = Path("data/evaluation_results.jsonl")
 FULL_LOG_FILE = Path("data/evaluation_results.jsonl")  # The detailed line-by-line log
 LLM_ONLY_FILE = Path("data/llm_responses.csv")         # New file for just responses
-MODEL_NAME = "microsoft/phi-2"  # Change this to your local model (mistral, llama3, etc.)
+MODEL_NAME = "microsoft/Phi-3.5-mini-instruct"  # Example of a local GPTQ model
 
 def get_full_raw_text(row):
     """
@@ -143,7 +142,8 @@ def main():
         df = pd.DataFrame(results_for_csv)
         
         # Optional: Select only specific columns for the clean CSV
-        df_clean = df[["item_id", "source", "collector_output", "normalizer_output"]]
+        #df_clean = df[["item_id", "source", "collector_output", "normalizer_output"]]
+        df_clean = df[["item_id", "source", "normalizer_output"]]
         
         df_clean.to_csv(LLM_ONLY_FILE, index=False)
         print(f"✅ Success! LLM responses written to: {LLM_ONLY_FILE}")
