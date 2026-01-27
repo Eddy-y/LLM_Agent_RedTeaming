@@ -1,67 +1,64 @@
 from langchain_core.prompts import PromptTemplate
-from langchain_core.output_parsers import StrOutputParser
+from langchain_core.output_parsers import JsonOutputParser
+from pydantic import BaseModel, Field
+from typing import List
+
+# Define the exact structure we want
+class SecurityFinding(BaseModel):
+    issue_type: str = Field(description="Short name of the issue")
+    category: str = Field(description="Category: Critical Vulnerability, Minor Warning, Dependency Issue, or Security Enhancement")
+    confidence_score: int = Field(description="Score from 1-10")
+    confidence_reasoning: str = Field(description="Why you assigned this score")
+    original_evidence: str = Field(description="The exact text snippet from the input")
+
+class SecurityAnalysis(BaseModel):
+    analysis_summary: str = Field(description="Brief overview of what was found")
+    findings: List[SecurityFinding]
 
 def get_agent_chains(llm):
-    # --- AGENT 1: THE COLLECTOR ---
-    # Goal: Read raw text and extract *anything* security relevant.
-    # Change: Removed "single line" constraint to allow capturing complex, messy details.
-    collector_template = """Instruct: You are a Security Data Collector. Your job is to filter noise and extract security-relevant information from unstructured text.
-    
-    If the text contains potential security issues (vulnerabilities, warnings, CVEs, risky dependencies), extract the relevant sentences exactly as they appear.
-    If the text is purely marketing, UI updates, or unrelated to security, output "NO_SECURITY_SIGNAL".
+    # --- AGENT 1: THE COLLECTOR (Simplified) ---
+    # Removed complex examples. Just direct instruction.
+    collector_template = """You are a Security Analyst. 
+    Analyze the following raw text. 
+    Extract ALL sentences that describe security vulnerabilities, weaknesses, or warnings.
+    Do not summarize. Extract the exact text.
+    If no security issues are found, return "NO_SECURITY_ISSUES".
 
-    Raw Input:
+    RAW TEXT:
     {raw_data}
 
-    ###
-    Constraint: Do not summarize. Do not create a bulleted list. Return only the relevant text excerpts joined by newlines.
-    Collector Output:"""
+    RELEVANT EXCERPTS:"""
 
     collector_prompt = PromptTemplate(
         input_variables=["raw_data"],
         template=collector_template
     )
 
-    # --- AGENT 2: THE NORMALIZER ---
-    # Goal: Organize the output, group issues, and assign confidence[cite: 22, 31].
-    # Change: Asks for a LIST of objects (to handle multiple issues) and adds "Category" to see how it groups them on its own.
-    normalizer_template = """Instruct: You are a Security Normalizer. You will receive a set of unorganized security excerpts. 
-    Your goal is to normalize this into a structured JSON format. 
+    # --- AGENT 2: THE NORMALIZER (Structured) ---
+    # Using JsonOutputParser to handle the formatting automatically
+    parser = JsonOutputParser(pydantic_object=SecurityAnalysis)
+
+    normalizer_template = """You are a Security Data Normalizer.
+    Transform the provided security excerpts into a structured JSON format.
     
-    You must determine the "Category" yourself (e.g., "Critical Vulnerability", "Minor Warning", "Dependency Issue", etc.).
-    
-    Input Text:
+    {format_instructions}
+
+    INPUT EXCERPTS:
     {collector_output}
 
-    ###
-    Constraint: Return ONLY a valid JSON object containing a list of findings. Do not include markdown formatting (like ```json). 
-    
-    Required JSON Structure:
-    {{
-        "analysis_summary": "Brief overview of what was found",
-        "findings": [
-            {{
-                "issue_type": "Short name of the issue",
-                "category": "Your categorization",
-                "confidence_score": "1-10",
-                "confidence_reasoning": "Why are you confident? (e.g., 'Explicit CVE ID found' or 'Vague wording')",
-                "original_evidence": "The specific text text that supports this"
-            }}
-        ]
-    }}
-    
-    Normalizer Output:"""
+    JSON OUTPUT:"""
 
     normalizer_prompt = PromptTemplate(
         input_variables=["collector_output"],
-        template=normalizer_template
+        template=normalizer_template,
+        partial_variables={"format_instructions": parser.get_format_instructions()}
     )
     
     # --- CHAINS ---
-    # We keep the chains simple to isolate behavior for evaluation.
+    # We use the parser on the normalizer to guarantee JSON
     chains = {
-        "collector": collector_prompt | llm | StrOutputParser(),
-        "normalizer": normalizer_prompt | llm | StrOutputParser()
+        "collector": collector_prompt | llm,  # Simple text out
+        "normalizer": normalizer_prompt | llm | parser # Enforced JSON out
     }
 
     return chains
