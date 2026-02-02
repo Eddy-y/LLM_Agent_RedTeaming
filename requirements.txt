@@ -4,4 +4,5 @@ langchain-huggingface
 torch
 pandas
 python-dotenv
-
+langchain_ollama
+langgraph

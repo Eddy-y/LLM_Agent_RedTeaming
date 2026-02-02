@@ -1,5 +1,7 @@
 import torch
 from transformers import AutoTokenizer, pipeline, AutoModelForCausalLM
+from langchain_ollama import ChatOllama
+
 
 def load_optimized_pipeline(model_id):
     """
@@ -61,3 +63,22 @@ def load_optimized_pipeline(model_id):
     model = AutoModelForCausalLM.from_pretrained(model_id, trust_remote_code=False)
 
     return pipeline("text-generation", model=model, device=device, **pipeline_kwargs)
+
+
+
+def load_tool_capable_model(model_name: str = "llama3"):
+    """
+    Initializes a Chat Model with native tool-calling capabilities.
+    Recommended: Use 'llama3' or 'mistral' via Ollama.
+    """
+    print(f"🧠 Initializing Agent Brain: {model_name}...")
+    
+    # We use ChatOllama because it natively supports the .bind_tools() method
+    # required for the agent to 'see' your Python functions.
+    llm = ChatOllama(
+        model=model_name,
+        temperature=0,  # Zero temperature for precise tool selection
+        # format="json" # Keep off for general reasoning; turn on if strictly extracting
+    )
+    
+    return llm
