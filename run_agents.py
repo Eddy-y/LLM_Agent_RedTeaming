@@ -13,7 +13,7 @@ from agents import build_red_team_graph  # IMPORT THE NEW GRAPH BUILDER
 DB_PATH = Path("data/pipeline.sqlite")
 FULL_LOG_FILE = Path("data/evaluation_results.jsonl")  # Logs the "Reasoning" (Step 4)
 SUMMARY_FILE = Path("data/agent_summary.csv")          # Final Report
-MODEL_NAME = "llama3"
+MODEL_NAME = "llama3.2:1b"
 
 def run_red_team_evaluation(app, packages):
     """
@@ -47,7 +47,7 @@ def run_red_team_evaluation(app, packages):
             
             # 2. Run the Graph & Stream Steps (The "Evaluation" of Reasoning)
             try:
-                for event in app.stream(initial_state):
+                for event in app.stream(initial_state): # Here goes in.
                     for key, value in event.items():
                         
                         # CASE A: Agent is Thinking

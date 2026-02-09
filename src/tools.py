@@ -2,78 +2,87 @@ from langchain.tools import tool
 from src.sources.pypi import fetch_pypi_json
 from src.sources.github_advisories import fetch_github_advisories
 from src.sources.nvd import fetch_nvd_cves
-from src.utils import safe_slug, utc_now_iso
+from src.config import get_settings
 
-# Helper to handle the "messy" data before the LLM sees it
 def simplify_payload(payload, source_type):
-    """Reduces 500 lines of JSON to the key security facts."""
+    """
+    Helper: Reduces massive JSON dumps to the key security facts 
+    so the LLM context window doesn't explode.
+    """
     if not payload:
         return "No data found."
     
-    # Example logic - customize based on what your 'Collector' agent usually looks for
     if source_type == "pypi":
         info = payload.get('info', {})
         return f"Summary: {info.get('summary')}\nVersion: {info.get('version')}\nAuthor: {info.get('author')}"
     
-    # For Lists (GitHub/NVD), just return counts or top items to save tokens
     if isinstance(payload, list):
-        return f"Found {len(payload)} records. Top item: {str(payload[0])[:200]}..."
+        # For lists (Github/NVD), return a summary count and the first item
+        return f"Found {len(payload)} records. First item: {str(payload[0])[:300]}..."
         
-    return str(payload)[:500] + "..." # Truncate to protect context window
+    return str(payload)[:500] + "..."
 
 @tool
 def check_pypi_metadata(package_name: str) -> str:
     """
-    Fetches package metadata from PyPI. 
-    Use this to verify if a package exists and get its summary/author info.
+    REQUIRED: package_name (str).
+    Fetches metadata for a python package to verify existence and basic info.
+    Example: check_pypi_metadata(package_name="flask")
     """
-    # Reuse your existing logic
-    status, payload, error, _ = fetch_pypi_json(package_name)
+    # 1. Load Settings
+    settings = get_settings()
+    
+    # 2. Pass REQUIRED arguments (timeout & user_agent)
+    status, payload, error, _ = fetch_pypi_json(
+        package_name,
+        timeout_seconds=settings.http_timeout_seconds,
+        user_agent=settings.user_agent
+    )
     
     if status != 200:
         return f"Error fetching PyPI: {error}"
-    
     return simplify_payload(payload, "pypi")
 
 @tool
 def check_github_advisories(package_name: str) -> str:
     """
-    Queries GitHub Security Advisories for known vulnerabilities.
-    Use this if you suspect the package has reported security issues.
+    REQUIRED: package_name (str).
+    Searches GitHub for security advisories.
+    Example: check_github_advisories(package_name="flask")
     """
-    # Note: Requires GITHUB_TOKEN to be set in environment
-    # You might need to import settings here to access the token
-    from src.config import get_settings
     settings = get_settings()
+    
+    # Check if token exists to avoid crashing
+    token = settings.github_token or ""
     
     status, payload, error, _ = fetch_github_advisories(
         package_name, 
-        github_token=settings.github_token
+        github_token=token,
+        timeout_seconds=settings.http_timeout_seconds,
+        user_agent=settings.user_agent
     )
-    
     if status != 200:
         return f"Error fetching GitHub: {error}"
-        
     return simplify_payload(payload, "github")
 
 @tool
 def check_nvd_cves(package_name: str) -> str:
     """
+    REQUIRED: package_name (str).
     Searches the National Vulnerability Database (NVD) for CVEs.
-    Use this as a fallback if GitHub Advisories are empty or strictly for CVE lookups.
+    Example: check_nvd_cves(package_name="flask")
     """
-    from src.config import get_settings
     settings = get_settings()
-
-    status, payload, error, _ = fetch_nvd_cves(
-        package_name,
-        api_key=settings.nvd_api_key
-    )
     
+    status, payload, error, _ = fetch_nvd_cves(
+        package_name, 
+        api_key=settings.nvd_api_key,
+        timeout_seconds=settings.http_timeout_seconds,
+        user_agent=settings.user_agent
+    )
     if status != 200:
         return f"Error fetching NVD: {error}"
-        
     return simplify_payload(payload, "nvd")
 
-# List of tools to bind to the model
+# Export for run_agents.py
 search_tools = [check_pypi_metadata, check_github_advisories, check_nvd_cves]
