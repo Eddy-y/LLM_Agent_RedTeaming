@@ -6,3 +6,4 @@ pandas
 python-dotenv
 langchain_ollama
 langgraph
+python-dotenv

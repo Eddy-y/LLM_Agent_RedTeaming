@@ -2,18 +2,22 @@ import json
 import pandas as pd
 from pathlib import Path
 from langchain_core.messages import HumanMessage
+from dotenv import load_dotenv 
+
+load_dotenv()
 
 # --- Local Imports ---
 from src.db import connect
 from engine import load_tool_capable_model
-from src.tools import search_tools       # Ensure this exists from Step 1
-from agents import build_red_team_graph  # IMPORT THE NEW GRAPH BUILDER
+from src.tools import search_tools       
+from agents import build_red_team_graph  
 
 # --- CONFIGURATION ---
 DB_PATH = Path("data/pipeline.sqlite")
 FULL_LOG_FILE = Path("data/evaluation_results.jsonl")  # Logs the "Reasoning" (Step 4)
 SUMMARY_FILE = Path("data/agent_summary.csv")          # Final Report
 MODEL_NAME = "llama3.2:1b"
+
 
 def run_red_team_evaluation(app, packages):
     """
