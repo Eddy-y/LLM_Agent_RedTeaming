@@ -6,7 +6,7 @@ from langgraph.graph import StateGraph, END
 from langgraph.prebuilt import ToolNode
 from langchain_core.messages import SystemMessage 
 
-MAX_STEPS = 3
+MAX_STEPS = 8
 
 # 1. Define the Memory State
 class AgentState(TypedDict):
