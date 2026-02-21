@@ -30,12 +30,13 @@ def fetch_nvd_cves(
     api_key: str | None,
     timeout_seconds: int,
     user_agent: str,
-    results_per_page: int = 5,
+    results_per_page: int = 10,
 ) -> tuple[int | None, dict[str, Any] | None, str | None, str]:
     endpoint = "https://services.nvd.nist.gov/rest/json/cves/2.0"
     headers = {"User-Agent": user_agent}
     if api_key:
         headers["apiKey"] = api_key
+        
 
     params = {
         "keywordSearch": package,

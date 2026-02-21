@@ -49,44 +49,47 @@ def run_red_team_evaluation(app, packages):
             final_response = "No response"
             tool_calls_made = []
             
-            # 2. Run the Graph & Stream Steps (The "Evaluation" of Reasoning)
+            # 2. Run the Graph & Stream Steps
             try:
-                for event in app.stream(initial_state): # Here goes in.
+                for event in app.stream(initial_state): 
                     for key, value in event.items():
                         
-                        # CASE A: Agent is Thinking
-                        if key == "agent":
+                        # CASE A: Agent 1 (Retriever)
+                        if key == "researcher":
                             msg = value["messages"][0]
-                            
-                            # Log to Console
                             if msg.tool_calls:
-                                print(f"  👉 [Decision]: Calling {len(msg.tool_calls)} tools...")
+                                print(f"  🕵️ [Agent 1]: Fetching data with {len(msg.tool_calls)} tools...")
                                 tool_calls_made.extend([t['name'] for t in msg.tool_calls])
-                            else:
-                                print(f"  📝 [Conclusion]: {msg.content[:60]}...")
-                                final_response = msg.content
-
-                            # Log to File (Step 4 Requirement)
-                            log_entry = {
+                            
+                            log_file.write(json.dumps({
                                 "package": pkg,
-                                "event": "reasoning",
+                                "event": "agent_1_retriever",
                                 "content": msg.content,
-                                "tool_calls": [t['name'] for t in msg.tool_calls]
-                            }
-                            log_file.write(json.dumps(log_entry) + "\n")
+                                "tool_calls": [t['name'] for t in msg.tool_calls] if hasattr(msg, 'tool_calls') else []
+                            }) + "\n")
 
-                        # CASE B: Tool is Executing
+                        # CASE B: Tools
                         elif key == "tools":
                             print(f"  ✅ [Action]: Tool execution finished.")
-                            # Log tool outputs
                             for m in value["messages"]:
-                                log_entry = {
+                                log_file.write(json.dumps({
                                     "package": pkg,
                                     "event": "tool_output",
                                     "tool": m.name,
                                     "output_snippet": m.content[:200]
-                                }
-                                log_file.write(json.dumps(log_entry) + "\n")
+                                }) + "\n")
+                                
+                        # CASE C: Agent 2 (Analyzer)
+                        elif key == "analyzer":
+                            msg = value["messages"][0]
+                            print(f"  📝 [Agent 2]: Report Generated.")
+                            final_response = msg.content # This is the final report
+                            
+                            log_file.write(json.dumps({
+                                "package": pkg,
+                                "event": "agent_2_analyzer",
+                                "content": msg.content
+                            }) + "\n")
                                 
             except Exception as e:
                 print(f"  ❌ Error processing {pkg}: {e}")
@@ -106,28 +109,30 @@ def main():
     # 1. Initialize Brain
     try:
         llm = load_tool_capable_model(MODEL_NAME)
-        llm_with_tools = llm.bind_tools(search_tools)
         
-        # Build the Graph using our modular function
-        agent_app = build_red_team_graph(llm_with_tools, search_tools)
-        print("✅ Agent Graph compiled successfully.")
+        # Build the Graph using the RAW LLM
+        agent_app = build_red_team_graph(llm, search_tools)
+        print("✅ Multi-Agent Graph compiled successfully.")
         
     except Exception as e:
         print(f"❌ Failed to load model/graph: {e}")
         return
 
-    # 2. Fetch Targets
-    if not DB_PATH.exists():
-        print(f"Error: DB not found at {DB_PATH}")
+    # 2. Fetch Targets from config.py
+    # Ensure you import get_settings at the top of your file:
+    # from src.config import get_settings
+    from src.config import get_settings 
+    
+    settings = get_settings()
+    packages = list(settings.packages)
+    print(f"📦 Loaded packages from config: {packages}")
+    
+    if not packages:
+        print("❌ No packages found in config.py.")
         return
 
-    conn = connect(DB_PATH)
-    # Get distinct packages to test
-    cursor = conn.execute("SELECT DISTINCT package_name FROM fetch_log")
-    packages = [row['package_name'] for row in cursor.fetchall()]
-    
-    # 3. Run Evaluation (The Step 4 Function)
-    summary_data = run_red_team_evaluation(agent_app, packages[:3]) # Limit to 3 for testing
+    # 3. Run Evaluation
+    summary_data = run_red_team_evaluation(agent_app, packages)
 
     # 4. Export Final Report
     if summary_data:
