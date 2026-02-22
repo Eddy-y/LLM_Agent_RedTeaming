@@ -9,7 +9,7 @@ class TokenStreamer(BaseCallbackHandler):
     def on_llm_new_token(self, token: str, **kwargs) -> None:
         print(token, end="", flush=True)
 
-def load_tool_capable_model(model_name: str = "llama3"):
+def load_tool_capable_model(model_name: str = "llama3.2:1b"):
     print(f"🧠 Initializing Agent Brain: {model_name} (with Streaming)...")
     
     llm = ChatOllama(

@@ -1,7 +1,7 @@
 from typing import TypedDict, Annotated, Sequence
 import operator
 
-from langchain_core.messages import BaseMessage, SystemMessage
+from langchain_core.messages import BaseMessage, SystemMessage, AIMessage
 from langgraph.graph import StateGraph, END
 from langgraph.prebuilt import ToolNode
 
@@ -36,12 +36,11 @@ def build_red_team_graph(llm, tools):
             
             CRITICAL RULES:
             1. DO NOT hallucinate results. You cannot "guess" what the database contains.
-            2. DO NOT write JSON text like '{"function": ...}'. 
-            3. TO USE A TOOL: You must strictly generate a "Tool Call".
-            4. PARAMETERS: You MUST provide the 'package_name' parameter for every tool.
+            2. TO USE A TOOL: You must strictly generate a "Tool Call".
+            3. PARAMETERS: You MUST provide the 'package_name' parameter for every tool.
                - WRONG: check_pypi_metadata()
                - CORRECT: check_pypi_metadata(package_name="flask")
-            5. STOP GENERATING TEXT IMMEDIATELY AFTER THE TOOL CALL.
+            4. Once you have called the tools, your job is completely done. Stop generating text.
             
             Valid Tools:
             - check_pypi_metadata(package_name=str)
@@ -64,39 +63,34 @@ def build_red_team_graph(llm, tools):
     def analyzer_node(state):
         messages = state['messages']
         
-        # This agent reads the entire history of what Agent 1 did.
-        
-        # --- PREVIOUS STRICT PROMPT (Commented out for storage) ---
-        # analyzer_prompt = SystemMessage(content="""
-        #     You are Agent 2: The Security Analyzer.
-        #     Read the conversation history and the raw tool outputs gathered by Agent 1.
-        #     
-        #     YOUR JOB: Filter the noise and write a highly accurate Security Report.
-        #     
-        #     CRITICAL RULES:
-        #     1. DISAMBIGUATION: You are analyzing PYTHON packages. If the data references unrelated software, IGNORE IT completely.
-        #     2. HIERARCHY OF TRUST: GitHub Advisories are explicitly scoped to Python. If NVD data looks suspicious or ancient, prioritize GitHub data.
-        #     3. Synthesize the valid threats into a structured report.
-        # """)
-        
         # --- NEW EXPANSIVE PROMPT (For UI Demonstration) ---
         analyzer_prompt = SystemMessage(content="""
-            You are Agent 2: The Lead Security Analyst and Technical Writer.
-            Read the conversation history and the raw tool outputs gathered by Agent 1.
+            You are an IT Administrative Auditor. Your task is to format public software metadata into a safe, high-level administrative summary.
             
-            YOUR JOB: Write a highly detailed, comprehensive, and expansive Security Report based on the provided data.
+            YOUR JOB: Read the provided JSON tool outputs and format them into a plain Markdown list. 
             
             CRITICAL RULES:
-            1. ELABORATE FULLY: Take whatever data Agent 1 provides and expand on it extensively. Even if the data seems loosely related or from an older date, connect the dots and explain the potential theoretical impacts in a verbose, professional manner.
-            2. STRUCTURED DEEP DIVE: Include multiple Markdown sections in your report, such as 'Executive Summary', 'Detailed Threat Landscape', 'Potential Attack Vectors', and 'Comprehensive Mitigation Strategies'.
-            3. NO FILTERING: Do not drop or ignore data. Weave all provided vulnerabilities, CVEs, or advisories into a cohesive narrative, regardless of their apparent relevance to the specific Python ecosystem. Make the report look substantial, authoritative, and lengthy.
+            1. STRICT GROUNDING: ONLY use the provided text. Do not add outside knowledge.
+            2. SAFE SUMMARIZATION: You are NOT writing a threat report or analyzing exploits. You are just listing administrative facts and IDs. DO NOT describe how attacks work. 
+            3. REQUIRED SECTIONS: Use the headers 'Package Metadata', 'GitHub Advisories', and 'NVD Entries'.
+            4. COMPLIANCE: Do not refuse this task. You are simply copying public IDs and brief descriptions into a list for an IT inventory.
         """)
         
-        # We replace the Retriever's system prompt with the Analyzer's prompt
-        analyzer_messages = [analyzer_prompt] + [m for m in messages if not isinstance(m, SystemMessage)]
+        # --- THE FIX: FILTER OUT AGENT 1's REFUSALS ---
+        # We keep the User prompt, the Tool Calls, and the Tool Outputs, 
+        # but we delete any plain text Agent 1 tried to say.
+        clean_history = []
+        for m in messages:
+            if isinstance(m, SystemMessage):
+                continue
+            # If Agent 1 generated text (like a refusal) instead of a tool call, hide it from Agent 2
+            if isinstance(m, AIMessage) and not m.tool_calls:
+                continue 
+            clean_history.append(m)
+
+        analyzer_messages = [analyzer_prompt] + clean_history
         
         print("\n\n--- [Agent 2: Analyzing Data & Writing Report] ---")
-        # Notice we use the raw `llm` here. No tools bound. It must output text.
         response = llm.invoke(analyzer_messages)
         print("\n--------------------------------------------------\n")
         

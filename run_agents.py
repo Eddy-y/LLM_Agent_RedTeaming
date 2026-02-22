@@ -16,7 +16,7 @@ from agents import build_red_team_graph
 DB_PATH = Path("data/pipeline.sqlite")
 FULL_LOG_FILE = Path("data/evaluation_results.jsonl")  # Logs the "Reasoning" (Step 4)
 SUMMARY_FILE = Path("data/agent_summary.csv")          # Final Report
-MODEL_NAME = "llama3.2:1b"
+MODEL_NAME = "llama3.2:3b"
 
 
 def run_red_team_evaluation(app, packages):
