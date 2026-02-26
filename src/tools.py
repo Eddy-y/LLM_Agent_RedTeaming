@@ -1,88 +1,57 @@
-from langchain.tools import tool
-from src.sources.pypi import fetch_pypi_json
-from src.sources.github_advisories import fetch_github_advisories
-from src.sources.nvd import fetch_nvd_cves
-from src.config import get_settings
+import sqlite3
+from langchain_core.tools import tool
+from .config import get_settings
 
-def simplify_payload(payload, source_type):
+@tool
+def search_local_cti(package_name: str) -> str:
     """
-    Helper: Reduces massive JSON dumps to the key security facts 
-    so the LLM context window doesn't explode.
+    Searches the local normalized SQLite database for Threat Intelligence 
+    related to a specific software package.
+    
+    Args:
+        package_name: The name of the software package (e.g., 'flask', 'django').
     """
-    if not payload:
-        return "No data found."
+    settings = get_settings()
+    db_path = settings.db_path
     
-    if source_type == "pypi":
-        info = payload.get('info', {})
-        return f"Summary: {info.get('summary')}\nVersion: {info.get('version')}\nAuthor: {info.get('author')}"
-    
-    if isinstance(payload, list):
-        # For lists (Github/NVD), return a summary count and the first item
-        return f"Found {len(payload)} records. First item: {str(payload[0])[:300]}..."
+    try:
+        conn = sqlite3.connect(str(db_path))
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
         
-    return str(payload)[:500] + "..."
+        # Query the normalized table for anything related to the package
+        # We also use LIKE in case the package name is mentioned in CAPEC/MITRE summaries
+        cursor.execute(
+            """
+            SELECT source, record_type, canonical_id, title, summary, severity 
+            FROM normalized_items 
+            WHERE package_name = ? OR summary LIKE ? OR title LIKE ?
+            LIMIT 50
+            """, 
+            (package_name, f"%{package_name}%", f"%{package_name}%")
+        )
+        
+        rows = cursor.fetchall()
+        conn.close()
+        
+        if not rows:
+            return f"No local threat intelligence found for package: {package_name}."
+            
+        # Format the SQL rows into a readable string for the LLM
+        formatted_results = f"--- CTI Database Results for '{package_name}' ---\n"
+        for row in rows:
+            formatted_results += (
+                f"\nSource: {row['source'].upper()} | Type: {row['record_type']}\n"
+                f"ID: {row['canonical_id']} | Severity: {row['severity']}\n"
+                f"Title: {row['title']}\n"
+                f"Summary: {row['summary']}\n"
+                f"-" * 40
+            )
+            
+        return formatted_results
+        
+    except Exception as e:
+        return f"Error accessing local CTI database: {str(e)}"
 
-@tool
-def check_pypi_metadata(package_name: str) -> str:
-    """
-    REQUIRED: package_name (str).
-    Fetches metadata for a python package to verify existence and basic info.
-    Example: check_pypi_metadata(package_name="flask")
-    """
-    # 1. Load Settings
-    settings = get_settings()
-    
-    # 2. Pass REQUIRED arguments (timeout & user_agent)
-    status, payload, error, _ = fetch_pypi_json(
-        package_name,
-        timeout_seconds=settings.http_timeout_seconds,
-        user_agent=settings.user_agent
-    )
-    
-    if status != 200:
-        return f"Error fetching PyPI: {error}"
-    return simplify_payload(payload, "pypi")
-
-@tool
-def check_github_advisories(package_name: str) -> str:
-    """
-    REQUIRED: package_name (str).
-    Searches GitHub for security advisories.
-    Example: check_github_advisories(package_name="flask")
-    """
-    settings = get_settings()
-    
-    # Check if token exists to avoid crashing
-    token = settings.github_token or ""
-    
-    status, payload, error, _ = fetch_github_advisories(
-        package_name, 
-        github_token=token,
-        timeout_seconds=settings.http_timeout_seconds,
-        user_agent=settings.user_agent
-    )
-    if status != 200:
-        return f"Error fetching GitHub: {error}"
-    return simplify_payload(payload, "github")
-
-@tool
-def check_nvd_cves(package_name: str) -> str:
-    """
-    REQUIRED: package_name (str).
-    Searches the National Vulnerability Database (NVD) for CVEs.
-    Example: check_nvd_cves(package_name="flask")
-    """
-    settings = get_settings()
-    
-    status, payload, error, _ = fetch_nvd_cves(
-        package_name, 
-        api_key=settings.nvd_api_key,
-        timeout_seconds=settings.http_timeout_seconds,
-        user_agent=settings.user_agent
-    )
-    if status != 200:
-        return f"Error fetching NVD: {error}"
-    return simplify_payload(payload, "nvd")
-
-# Export for run_agents.py
-search_tools = [check_pypi_metadata, check_github_advisories, check_nvd_cves]
+# Update the exported tools list for LangGraph to use
+search_tools = [search_local_cti]
