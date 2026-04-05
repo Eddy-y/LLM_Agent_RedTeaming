@@ -10,6 +10,7 @@ load_dotenv()
 from src.db import connect
 from engine import load_tool_capable_model
 from src.tools import search_tools       
+from src.verifier import run_verification_and_log
 from agents import build_red_team_graph  
 
 # --- CONFIGURATION ---
@@ -48,7 +49,8 @@ def run_red_team_evaluation(app, packages):
 
             final_response = "No response"
             tool_calls_made = []
-            
+            db_context_cache = "No database context retrieved."
+
             # 2. Run the Graph & Stream Steps
             try:
                 for event in app.stream(initial_state): 
@@ -68,22 +70,40 @@ def run_red_team_evaluation(app, packages):
                                 "tool_calls": [t['name'] for t in msg.tool_calls] if hasattr(msg, 'tool_calls') else []
                             }) + "\n")
 
+                            run_verification_and_log(
+                                agent_name="Scout/Retriever Agent",
+                                file_origin="run_agents.py",
+                                context=initial_state["messages"][0].content, # The initial prompt
+                                response=msg.content if msg.content else str(msg.tool_calls)
+                            )
+
                         # CASE B: Tools
                         elif key == "tools":
                             print(f"  ✅ [Action]: Tool execution finished.")
+                            captured_tool_texts = []
                             for m in value["messages"]:
+                                captured_tool_texts.append(m.content)
+
                                 log_file.write(json.dumps({
                                     "package": pkg,
                                     "event": "tool_output",
                                     "tool": m.name,
                                     "output_snippet": m.content[:200]
                                 }) + "\n")
+                            db_context_cache = "\n---\n".join(captured_tool_texts)
                                 
                         # CASE C: Agent 2 (Analyzer)
                         elif key == "analyzer":
                             msg = value["messages"][0]
                             print(f"  📝 [Agent 2]: Report Generated.")
-                            final_response = msg.content 
+                            final_response = msg.content
+
+                            run_verification_and_log(
+                                agent_name="Analyzer/Augmentation Agent",
+                                file_origin="run_agents.py",
+                                context=db_context_cache,
+                                response=final_response
+                            ) 
                             
                             log_file.write(json.dumps({
                                 "package": pkg,

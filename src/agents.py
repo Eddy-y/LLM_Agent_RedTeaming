@@ -1,8 +1,9 @@
 import requests
 import json
 from .config import OLLAMA_URL, OLLAMA_MODEL
+from .verifier import run_verification_and_log
 
-def query_ollama(prompt, data_snippet):
+def query_ollama(prompt, data_snippet, agent_name="Unknown Agent", file_origin="src/agents.py"):
     """Sends the prompt and data to the local Ollama LLM."""
     content = f"{prompt}\n\nDATA SNIPPET:\n{json.dumps(data_snippet)[:2000]}"
     payload = {
@@ -17,6 +18,13 @@ def query_ollama(prompt, data_snippet):
         
         raw_output = resp.json()["message"]["content"]
         print(f"\n[LLM RAW OUTPUT]:\n{raw_output}\n")
+
+        run_verification_and_log(
+            agent_name=agent_name, 
+            file_origin=file_origin, 
+            context=data_snippet, 
+            response=raw_output
+        )
         
         return json.loads(raw_output)
     except Exception as e:
@@ -28,7 +36,7 @@ def _execute_specialist(raw_items, prompt, source_name):
     candidates = []
     print(f"    [{source_name.upper()} Agent] Analyzing {len(raw_items)} items...")
     for item in raw_items:
-        result = query_ollama(prompt, item)
+        result = query_ollama(prompt, item, agent_name=f"{source_name.upper()} Specialist")
         if result and result.get("id"):
             result["_origin_source"] = source_name
             candidates.append(result)
@@ -100,7 +108,7 @@ def run_central_normalizer(specialist_outputs):
     normalized_results = []
     
     for item in specialist_outputs:
-        result = query_ollama(prompt, item)
+        result = query_ollama(prompt, item, agent_name="Central Normalizer")
         if result and result.get("canonical_id"):
             normalized_results.append(result)
             print("+", end="", flush=True)
