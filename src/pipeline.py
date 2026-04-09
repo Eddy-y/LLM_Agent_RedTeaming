@@ -1,15 +1,13 @@
 """
 pipeline.py
-
 Orchestrates ingestion for each package and each data source.
 Extracts items using Explicit LLM Specialist Agents and Normalizer into unified DB.
 """
 
 from __future__ import annotations
-
+import concurrent.futures
 from pathlib import Path
 from typing import Any
-
 from dotenv import load_dotenv
 
 from .config import get_settings
@@ -49,10 +47,8 @@ def run_pipeline(packages: list[str] | None = None) -> str:
     conn = connect(settings.db_path)
     init_db(conn)
 
-    # 1. Fetch Universal Attack Patterns (Runs once per pipeline execution)
     _run_universal_corpora(conn, run_id)
 
-    # 2. Fetch Package-Specific Vulnerabilities (Loops per package)
     if packages is None:
         packages = list(settings.packages)
 
@@ -66,39 +62,36 @@ def run_pipeline(packages: list[str] | None = None) -> str:
 def process_payload_with_agents(conn, run_id, package, source_name, raw_items, agent_function):
     """
     Helper function to pass raw data through a specific Specialist -> Normalizer -> DB.
+    Now passes source_name to the normalizer for dynamic context.
     """
     if not raw_items:
         return
 
-    # 1. Pass data to the specific explicit Agent
-    specialist_output = agent_function(raw_items)
+    if source_name == "nvd":
+        specialist_output = agent_function(raw_items, package)
+    else:
+        specialist_output = agent_function(raw_items)
     
-    # 2. Pass intermediate data to the Central Normalizer Agent
     if specialist_output:
-        normalized_data = run_central_normalizer(specialist_output)
+        normalized_data = run_central_normalizer(specialist_output, source_name)
         
-        # 3. Save to the unified database table
         if normalized_data:
+            for item in normalized_data:
+                item["source"] = source_name
+                
             insert_normalized_batch(conn, run_id, package, normalized_data)
             print(f"    [DB] Saved {len(normalized_data)} normalized records for {source_name}.")
-
-
-# ==========================================
-# UNIVERSAL CORPORA LOGIC (MITRE & CAPEC)
-# ==========================================
+            
 def _run_universal_corpora(conn, run_id):
-    """Fetches universal threat data (MITRE/CAPEC) in batches."""
     print("\n--- Processing Universal Corpora (MITRE & CAPEC) ---")
     state = load_state()
     
-    # MITRE ATT&CK
     mitre_offset = state.get("mitre_offset", 0)
     mitre_data = fetch_mitre_objects(offset=mitre_offset, limit=5)
     if mitre_data and mitre_data.get("objects"):
         process_payload_with_agents(conn, run_id, "Universal", "attack", mitre_data["objects"], run_mitre_agent)
         advance_mitre_offset(5)
         
-    # CAPEC
     capec_offset = state.get("capec_offset", 0)
     capec_data = fetch_capec_objects(offset=capec_offset, limit=5)
     if capec_data and capec_data.get("objects"):
@@ -106,68 +99,46 @@ def _run_universal_corpora(conn, run_id):
         advance_capec_offset(5)
 
 
-# ==========================================
-# PACKAGE-SPECIFIC LOGIC (PYPI, GITHUB, NVD)
-# ==========================================
 def _run_for_package(conn, run_id: str, package: str, settings) -> None:
     print(f"\nRunning ingestion for package: {package}")
 
-    # --- 1. PYPI PIPELINE ---
-    pypi_raw_path = _raw_path_for(settings.data_dir, run_id, package, PYPI_SOURCE)
-    status, payload, error, endpoint = fetch_pypi_json(
-        package, timeout_seconds=settings.http_timeout_seconds, user_agent=settings.user_agent,
-    )
-
-    if payload is not None:
-        write_json(pypi_raw_path, payload)
-
-    insert_fetch_log(
-        conn, run_id=run_id, package_name=package, source=PYPI_SOURCE,
-        endpoint=endpoint, fetched_at_utc=utc_now_iso(), http_status=status,
-        error=error, raw_path=str(pypi_raw_path),
-    )
-
-    if payload is not None:
-        process_payload_with_agents(conn, run_id, package, PYPI_SOURCE, [payload], run_pypi_agent)
-
-    # --- 2. GITHUB ADVISORIES PIPELINE ---
-    if settings.github_token:
-        gh_raw_path = _raw_path_for(settings.data_dir, run_id, package, GITHUB_SOURCE)
-        status, payload, error, endpoint = fetch_github_advisories(
-            package, github_token=settings.github_token, timeout_seconds=settings.http_timeout_seconds, user_agent=settings.user_agent,
+    # Launch network I/O concurrently
+    with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+        future_pypi = executor.submit(
+            fetch_pypi_json, package, timeout_seconds=settings.http_timeout_seconds, user_agent=settings.user_agent
+        )
+        
+        future_github = None
+        if settings.github_token:
+            future_github = executor.submit(
+                fetch_github_advisories, package, github_token=settings.github_token, timeout_seconds=settings.http_timeout_seconds, user_agent=settings.user_agent
+            )
+            
+        future_nvd = executor.submit(
+            fetch_nvd_cves, package, api_key=settings.nvd_api_key, timeout_seconds=settings.http_timeout_seconds, user_agent=settings.user_agent
         )
 
-        if payload is not None:
-            write_json(gh_raw_path, payload)
+        # Retrieve and process PyPI
+        p_status, p_payload, p_err, p_end = future_pypi.result()
+        p_path = _raw_path_for(settings.data_dir, run_id, package, PYPI_SOURCE)
+        if p_payload: write_json(p_path, p_payload)
+        insert_fetch_log(conn, run_id=run_id, package_name=package, source=PYPI_SOURCE, endpoint=p_end, fetched_at_utc=utc_now_iso(), http_status=p_status, error=p_err, raw_path=str(p_path))
+        if p_payload: process_payload_with_agents(conn, run_id, package, PYPI_SOURCE, [p_payload], run_pypi_agent)
 
-        insert_fetch_log(
-            conn, run_id=run_id, package_name=package, source=GITHUB_SOURCE,
-            endpoint=endpoint, fetched_at_utc=utc_now_iso(), http_status=status,
-            error=error, raw_path=str(gh_raw_path),
-        )
+        # Retrieve and process GitHub
+        if future_github:
+            gh_status, gh_payload, gh_err, gh_end = future_github.result()
+            gh_path = _raw_path_for(settings.data_dir, run_id, package, GITHUB_SOURCE)
+            if gh_payload: write_json(gh_path, gh_payload)
+            insert_fetch_log(conn, run_id=run_id, package_name=package, source=GITHUB_SOURCE, endpoint=gh_end, fetched_at_utc=utc_now_iso(), http_status=gh_status, error=gh_err, raw_path=str(gh_path))
+            if gh_payload: process_payload_with_agents(conn, run_id, package, GITHUB_SOURCE, gh_payload, run_github_agent)
 
-        if payload is not None:
-            process_payload_with_agents(conn, run_id, package, GITHUB_SOURCE, payload, run_github_agent)
-
-    # --- 3. NVD PIPELINE ---
-    nvd_raw_path = _raw_path_for(settings.data_dir, run_id, package, NVD_SOURCE)
-    status, payload, error, endpoint = fetch_nvd_cves(
-        package, api_key=settings.nvd_api_key, timeout_seconds=settings.http_timeout_seconds, user_agent=settings.user_agent,
-    )
-
-    if payload is not None:
-        write_json(nvd_raw_path, payload)
-
-    insert_fetch_log(
-        conn, run_id=run_id, package_name=package, source=NVD_SOURCE,
-        endpoint=endpoint, fetched_at_utc=utc_now_iso(), http_status=status,
-        error=error, raw_path=str(nvd_raw_path),
-    )
-
-    if payload is not None:
-        cves = payload.get("vulnerabilities", [])
-        process_payload_with_agents(conn, run_id, package, NVD_SOURCE, cves, run_nvd_agent)
-
+        # Retrieve and process NVD
+        nvd_status, nvd_payload, nvd_err, nvd_end = future_nvd.result()
+        nvd_path = _raw_path_for(settings.data_dir, run_id, package, NVD_SOURCE)
+        if nvd_payload: write_json(nvd_path, nvd_payload)
+        insert_fetch_log(conn, run_id=run_id, package_name=package, source=NVD_SOURCE, endpoint=nvd_end, fetched_at_utc=utc_now_iso(), http_status=nvd_status, error=nvd_err, raw_path=str(nvd_path))
+        if nvd_payload: process_payload_with_agents(conn, run_id, package, NVD_SOURCE, nvd_payload.get("vulnerabilities", []), run_nvd_agent)
 
 if __name__ == "__main__":
     run_id = run_pipeline()

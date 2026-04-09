@@ -2,28 +2,12 @@
 db.py
 
 SQLite database layer.
-
-We store two core things:
-
-1) fetch_log
-   One row per API call or fetch attempt
-   Includes where raw payload is stored on disk
-
-2) extracted_items
-   "Intermediate records" extracted from raw payloads
-   This is what your partner can later feed into the local LLM normalizer
-
-Why this design:
-  you can rerun normalization without re-fetching
-  you can debug by opening the raw files
-  you can track what you collected and when
 """
 
 from __future__ import annotations
 
 import sqlite3
 from pathlib import Path
-from typing import Any, Iterable
 
 
 def connect(db_path: Path) -> sqlite3.Connection:
@@ -60,22 +44,29 @@ def init_db(conn: sqlite3.Connection) -> None:
           package_name TEXT NOT NULL,
           source TEXT NOT NULL,
           record_type TEXT,
-          canonical_id TEXT UNIQUE,
+          canonical_id TEXT,
           title TEXT,
           summary TEXT,
           severity TEXT,
           published_at TEXT,
-          references_json TEXT
+          references_json TEXT,
+          
+          UNIQUE(canonical_id, package_name)
         );
         """
     )
     conn.commit()
 
+
 def insert_normalized_batch(conn: sqlite3.Connection, run_id: str, package_name: str, rows: list[dict]):
     for row in rows:
+        # Skip inserting if the normalizer triggered the Escape Hatch (canonical_id is null)
+        if not row.get("canonical_id"):
+            continue
+            
         conn.execute(
             """
-            INSERT OR IGNORE INTO normalized_items
+            INSERT OR REPLACE INTO normalized_items
               (run_id, package_name, source, record_type, canonical_id, title, summary, severity, published_at, references_json)
             VALUES
               (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -94,6 +85,7 @@ def insert_normalized_batch(conn: sqlite3.Connection, run_id: str, package_name:
             )
         )
     conn.commit()
+
 
 def insert_fetch_log(
     conn: sqlite3.Connection,
@@ -118,3 +110,4 @@ def insert_fetch_log(
     )
     conn.commit()
     return int(cur.lastrowid)
+  

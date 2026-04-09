@@ -67,3 +67,24 @@ if st.button("Run Red Team Evaluation"):
                 
             else:
                 st.error("Evaluation failed to return data.")
+
+# Mertrics
+
+st.divider()
+st.subheader("📊 Live Research Metrics (RQ1 - RQ4)")
+
+try:
+    # Read the metrics CSV directly into the UI
+    metrics_df = pd.read_csv("data/research_metrics.csv")
+    
+    # Display it as an interactive table
+    st.dataframe(metrics_df, use_container_width=True)
+    
+    # Optional: Display a quick metric summary
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Total Packages Scanned", len(metrics_df))
+    col2.metric("Avg Total Latency", f"{metrics_df['Total_Latency_Sec'].mean():.2f}s")
+    col3.metric("Guardrails Triggered", metrics_df['Guardrail_Triggered'].sum())
+    
+except FileNotFoundError:
+    st.info("No metrics gathered yet. Run an evaluation to generate the data.")

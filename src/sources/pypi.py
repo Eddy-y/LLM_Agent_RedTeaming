@@ -19,19 +19,20 @@ from __future__ import annotations
 from typing import Any
 
 import requests
+from tenacity import retry, wait_exponential, stop_after_attempt
 
 from ..utils import utc_now_iso
 
 
 PYPI_SOURCE = "pypi"
 
-
+@retry(wait=wait_exponential(multiplier=2, min=4, max=10), stop=stop_after_attempt(3))
 def fetch_pypi_json(
     package: str,
     *,
     timeout_seconds: int,
     user_agent: str,
-) -> tuple[int, dict[str, Any] | None, str | None, str]:
+) -> tuple[int | None, dict[str, Any] | None, str | None, str]:
     """
     Returns:
       http_status
@@ -45,9 +46,20 @@ def fetch_pypi_json(
     try:
         resp = requests.get(endpoint, headers=headers, timeout=timeout_seconds)
         status = resp.status_code
+        
+        # Trigger tenacity retry for rate limits and server errors
+        if status in [429, 500, 502, 503, 504]:
+            resp.raise_for_status() 
+            
         if status != 200:
             return status, None, f"PyPI returned status {status}", endpoint
         return status, resp.json(), None, endpoint
+        
+    except requests.exceptions.HTTPError as e:
+        # Re-raise so tenacity can catch the specific HTTP errors we defined above
+        if e.response.status_code in [429, 500, 502, 503, 504]:
+            raise
+        return e.response.status_code, None, f"PyPI HTTP error: {e}", endpoint
     except Exception as e:
         return None, None, f"PyPI request failed: {e}", endpoint
 
@@ -62,7 +74,6 @@ def extract_pypi_item(package: str, raw_path: str, payload: dict[str, Any], run_
     home_page = info.get("home_page") or ""
     package_url = f"https://pypi.org/project/{package}/"
 
-    # Minimal metadata record
     return {
         "run_id": run_id,
         "package_name": package,
@@ -76,3 +87,4 @@ def extract_pypi_item(package: str, raw_path: str, payload: dict[str, Any], run_
         "raw_path": raw_path,
         "extracted_at_utc": utc_now_iso(),
     }
+    

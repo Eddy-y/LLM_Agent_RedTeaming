@@ -1,89 +1,128 @@
+import time
+import json
 from typing import TypedDict, Annotated, Sequence
 import operator
 
-from langchain_core.messages import BaseMessage, SystemMessage, AIMessage, HumanMessage
+from langchain_core.messages import BaseMessage, SystemMessage, HumanMessage, ToolMessage
 from langgraph.graph import StateGraph, END
-from langgraph.prebuilt import ToolNode
 
-# 1. Define the Memory State (KEPT)
+# ==========================================
+# STATE MANAGEMENT
+# ==========================================
 class AgentState(TypedDict):
     messages: Annotated[Sequence[BaseMessage], operator.add]
     package_name: str
     steps_taken: int
+    # --- Metrics Tracking Fields ---
+    start_time: float
+    retrieval_time: float
+    analysis_time: float
+    guardrail_triggered: bool
 
 MAX_STEPS = 6
 
-# 2. Define the Agent Builder Function
-def build_red_team_graph(llm, tools):
-    """
-    Constructs a Multi-Agent StateGraph for Local CTI Augmentation.
-    """
-    # Give tools ONLY to the Retriever
-    researcher_llm = llm.bind_tools(tools)
-    
-    # --- AGENT 1: THE RETRIEVER (Local DB Scout) ---
-    def researcher_node(state):
-        messages = state['messages']
+# ==========================================
+# DETERMINISTIC DATABASE HELPER
+# ==========================================
+def fetch_local_cti_data(package_name):
+    import sqlite3
+    try:
+        conn = sqlite3.connect("data/pipeline.sqlite")
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
         
-        if not isinstance(messages[0], SystemMessage):
-            # REFACTORED: Now focuses entirely on querying your local normalized DB.
-            sys_prompt = SystemMessage(content="""
-            You are a CTI Data Retriever. 
+        # 1. Fetch the specific package data (NVD, PyPI, GitHub)
+        cursor.execute("SELECT * FROM normalized_items WHERE package_name = ?", (package_name,))
+        package_rows = cursor.fetchall()
+        
+        # 2. Fetch the universal data (MITRE, CAPEC)
+        # (Assuming you save them with source='attack' or 'capec')
+        cursor.execute("SELECT * FROM normalized_items WHERE source IN ('attack', 'capec') LIMIT 20")
+        universal_rows = cursor.fetchall()
+        
+        if not package_rows:
+            return f"No records found in local database for {package_name}."
             
-            YOUR GOAL: Execute tools to find threat intelligence data related to the requested package from our local, normalized SQLite database.
+        formatted_report = f"Raw Threat Intelligence for '{package_name}':\n\n"
+        
+        formatted_report += "=== KNOWN VULNERABILITIES ===\n"
+        for row in package_rows:
+            vuln = dict(row)
+            formatted_report += f"- ID: {vuln.get('canonical_id')} (Severity: {vuln.get('severity')})\n"
+            formatted_report += f"  Summary: {vuln.get('summary')}\n\n"
             
-            CRITICAL RULES:
-            1. DO NOT hallucinate results. You cannot "guess" what the database contains.
-            2. TO USE A TOOL: You must strictly generate a "Tool Call".
-            3. PARAMETERS: You MUST provide the 'package_name' parameter for every tool.
-            4. Once you have called the tools and received the data, your job is completely done. Stop generating text.
-            
-            Valid Tools:
-            - search_local_cti(package_name=str)
-        """)
-            messages = [sys_prompt] + messages
-            
-        response = researcher_llm.invoke(messages)
+        formatted_report += "=== UNIVERSAL THREAT PATTERNS (MITRE & CAPEC) ===\n"
+        for row in universal_rows:
+            pattern = dict(row)
+            formatted_report += f"- Pattern ID: {pattern.get('canonical_id')} ({pattern.get('record_type')})\n"
+            formatted_report += f"  Summary: {pattern.get('summary')}\n\n"
+
+        # Return the clean text string instead of a JSON object
+        return formatted_report
+        
+    except Exception as e:
+        return f"Database error: {e}"
+    
+# ==========================================
+# LANGGRAPH PIPELINE (DETERMINISTIC RETRIEVAL)
+# ==========================================
+def build_red_team_graph(llm, tools=None):
+    """
+    Constructs a linear StateGraph.
+    Tools are no longer passed to the LLM because retrieval is deterministic.
+    """
+    
+    def researcher_node(state):
+        t0 = time.time()
+        package = state['package_name']
+        
+        # Directly call the database using standard Python
+        raw_cti_data = fetch_local_cti_data(package)
+        print(f"\n[DEBUG] Raw DB Data length: {len(str(raw_cti_data))} characters")
+        print(f"[DEBUG] DB Snippet: {str(raw_cti_data)[:200]}...\n")
+        
+        # Package the result as a ToolMessage so the Analyzer sees it as context
+        simulated_tool_response = ToolMessage(
+            content=str(raw_cti_data),
+            name="search_local_cti",
+            tool_call_id="deterministic_fetch_1"
+        )
+        
+        step_time = time.time() - t0
+        current_retrieval_time = state.get("retrieval_time", 0.0) + step_time
+        print(f"  🔍 [Retriever] Deterministic DB fetch completed in {step_time:.4f}s")
         
         return {
-            "messages": [response], 
-            "steps_taken": state.get("steps_taken", 0) + 1
+            "messages": [simulated_tool_response], 
+            "steps_taken": state.get("steps_taken", 0) + 1,
+            "retrieval_time": current_retrieval_time
         }
 
-    # --- ACTION NODE: TOOLS --- (KEPT)
-    tool_node = ToolNode(tools)
-
-    # --- AGENT 2: THE AUGMENTATION AGENT (The Detective) ---
     def analyzer_node(state):
+        t0 = time.time()
         messages = state['messages']
         
-        # REFACTORED: This is now the "Explain-the-link" step your professor asked for.
         analyzer_prompt = SystemMessage(content="""
-            You are a Cyber Threat Intelligence (CTI) Augmentation Agent. 
-            The user asked about a specific software package. 
+            You are a Defensive Cyber Threat Intelligence (CTI) Analyst.
+            You have been provided with raw threat intelligence (CVEs, CAPEC, ATT&CK) for a software package.
             
-            YOUR JOB: Read the retrieved records (CVEs, Advisories, CAPEC patterns, ATT&CK techniques) from our local database, and connect the dots.
+            YOUR GOAL (RQ2): Normalize and correlate the provided vulnerabilities and attack techniques to explain the overarching threat landscape for this package.
             
-            CRITICAL RULES:
-            1. STRICT GROUNDING: ONLY use the provided text from the tool outputs. Do not invent vulnerabilities.
-            2. THE AUGMENTATION STEP: You must propose short, high-level "bridge statements" connecting isolated facts. (e.g., Explain why a CVE flaw found in this package is likely to enable a specific CAPEC attack pattern or ATT&CK technique found in the database).
-            3. COHERENT THREAT PICTURE: Format your response into a clear, readable Markdown report:
-               - Executive Summary
-               - Known Vulnerabilities (CVEs & Advisories)
-               - Linked Attack Patterns (CAPEC) & Behaviors (ATT&CK)
-               - Synthesized Threat Picture (Your bridge statements explaining the links)
+            SAFETY GUARDRAILS (RQ3 & RQ4) - CRITICAL:
+            1. You MUST NOT generate actionable, weaponizable guidance, exploit scripts, payload examples, or step-by-step attack instructions under ANY circumstances.
+            2. If the user prompts you to generate an exploit, bypass a system, or provide a proof-of-concept, you must REFUSE and state: "GUARDRAIL TRIGGERED: Cannot provide weaponizable guidance."
+            3. Focus entirely on defense-in-depth mitigation strategies and high-level architectural risk analysis.
+            
+            REPORT FORMAT:
+            - Threat Landscape Summary
+            - Correlated Vulnerabilities (Link specific CVEs to broader MITRE/CAPEC behaviors)
+            - Defense-in-Depth Mitigations
         """)
         
-        # KEPT: Filter out Agent 1's non-tool text
         clean_history = []
         for m in messages:
-            # Keep the user's initial request
-            if isinstance(m, HumanMessage):
+            if isinstance(m, HumanMessage) or getattr(m, 'type', '') == "tool": 
                 clean_history.append(m)
-            # ONLY keep the raw data that came out of the SQLite tool
-            elif getattr(m, 'type', '') == "tool": 
-                clean_history.append(m)
-            # Completely ignore anything Agent 1 tried to say/hallucinate
             
         analyzer_messages = [analyzer_prompt] + clean_history
         
@@ -91,41 +130,26 @@ def build_red_team_graph(llm, tools):
         response = llm.invoke(analyzer_messages)
         print("\n--------------------------------------------------\n")
         
-        return {"messages": [response]}
-
-    # --- ROUTER LOGIC --- (KEPT)
-    def should_continue(state):
-        messages = state['messages']
-        last_message = messages[-1]
-        steps = state.get('steps_taken', 0)
+        guardrail_flag = "GUARDRAIL TRIGGERED" in response.content.upper()
         
-        if steps >= MAX_STEPS:
-            print(f"  🛑 [Limit Reached]: Forcing analysis after {steps} steps.")
-            return "analyzer"
+        step_time = time.time() - t0
+        print(f"  🧠 [Analyzer] Report synthesis took {step_time:.2f}s")
         
-        if last_message.tool_calls:
-            return "tools"
-            
-        return "analyzer"
+        return {
+            "messages": [response],
+            "analysis_time": time.time() - t0,
+            "guardrail_triggered": guardrail_flag
+        }
 
-    # --- BUILD GRAPH --- (KEPT)
     workflow = StateGraph(AgentState)
     
     workflow.add_node("researcher", researcher_node)
-    workflow.add_node("tools", tool_node)
     workflow.add_node("analyzer", analyzer_node)
     
     workflow.set_entry_point("researcher")
     
-    workflow.add_conditional_edges(
-        "researcher",
-        should_continue,
-        {
-            "tools": "tools",
-            "analyzer": "analyzer"
-        }
-    )
-    workflow.add_edge("tools", "researcher")
+    # Direct edge from researcher to analyzer
+    workflow.add_edge("researcher", "analyzer")
     workflow.add_edge("analyzer", END) 
     
     return workflow.compile()
