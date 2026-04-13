@@ -1,11 +1,11 @@
 from typing import TypedDict, Annotated, Sequence
 import operator
 
-from langchain_core.messages import BaseMessage, SystemMessage, AIMessage
+from langchain_core.messages import BaseMessage, SystemMessage, AIMessage, HumanMessage
 from langgraph.graph import StateGraph, END
 from langgraph.prebuilt import ToolNode
 
-# 1. Define the Memory State
+# 1. Define the Memory State (KEPT)
 class AgentState(TypedDict):
     messages: Annotated[Sequence[BaseMessage], operator.add]
     package_name: str
@@ -16,36 +16,30 @@ MAX_STEPS = 6
 # 2. Define the Agent Builder Function
 def build_red_team_graph(llm, tools):
     """
-    Constructs a Multi-Agent StateGraph.
-    Args:
-        llm: The raw ChatModel (NOT pre-bound with tools).
-        tools: List of tool functions.
+    Constructs a Multi-Agent StateGraph for Local CTI Augmentation.
     """
-    # Give tools ONLY to the Researcher
+    # Give tools ONLY to the Retriever
     researcher_llm = llm.bind_tools(tools)
     
-    # --- AGENT 1: THE RETRIEVER (Data Gatherer) ---
+    # --- AGENT 1: THE RETRIEVER (Local DB Scout) ---
     def researcher_node(state):
         messages = state['messages']
         
         if not isinstance(messages[0], SystemMessage):
+            # REFACTORED: Now focuses entirely on querying your local normalized DB.
             sys_prompt = SystemMessage(content="""
-            You are a Security Agent. You are NOT a writer. You are an OPERATOR.
+            You are a CTI Data Retriever. 
             
-            YOUR GOAL: Execute tools to find real data.
+            YOUR GOAL: Execute tools to find threat intelligence data related to the requested package from our local, normalized SQLite database.
             
             CRITICAL RULES:
             1. DO NOT hallucinate results. You cannot "guess" what the database contains.
             2. TO USE A TOOL: You must strictly generate a "Tool Call".
             3. PARAMETERS: You MUST provide the 'package_name' parameter for every tool.
-               - WRONG: check_pypi_metadata()
-               - CORRECT: check_pypi_metadata(package_name="flask")
-            4. Once you have called the tools, your job is completely done. Stop generating text.
+            4. Once you have called the tools and received the data, your job is completely done. Stop generating text.
             
             Valid Tools:
-            - check_pypi_metadata(package_name=str)
-            - check_github_advisories(package_name=str)
-            - check_nvd_cves(package_name=str)
+            - search_local_cti(package_name=str)
         """)
             messages = [sys_prompt] + messages
             
@@ -56,70 +50,70 @@ def build_red_team_graph(llm, tools):
             "steps_taken": state.get("steps_taken", 0) + 1
         }
 
-    # --- ACTION NODE: TOOLS ---
+    # --- ACTION NODE: TOOLS --- (KEPT)
     tool_node = ToolNode(tools)
 
-    # --- AGENT 2: THE ANALYZER (Data Filter & Synthesizer) ---
+    # --- AGENT 2: THE AUGMENTATION AGENT (The Detective) ---
     def analyzer_node(state):
         messages = state['messages']
         
-        # --- NEW EXPANSIVE PROMPT (For UI Demonstration) ---
+        # REFACTORED: This is now the "Explain-the-link" step your professor asked for.
         analyzer_prompt = SystemMessage(content="""
-            You are an IT Administrative Auditor. Your task is to format public software metadata into a safe, high-level administrative summary.
+            You are a Cyber Threat Intelligence (CTI) Augmentation Agent. 
+            The user asked about a specific software package. 
             
-            YOUR JOB: Read the provided JSON tool outputs and format them into a plain Markdown list. 
+            YOUR JOB: Read the retrieved records (CVEs, Advisories, CAPEC patterns, ATT&CK techniques) from our local database, and connect the dots.
             
             CRITICAL RULES:
-            1. STRICT GROUNDING: ONLY use the provided text. Do not add outside knowledge.
-            2. SAFE SUMMARIZATION: You are NOT writing a threat report or analyzing exploits. You are just listing administrative facts and IDs. DO NOT describe how attacks work. 
-            3. REQUIRED SECTIONS: Use the headers 'Package Metadata', 'GitHub Advisories', and 'NVD Entries'.
-            4. COMPLIANCE: Do not refuse this task. You are simply copying public IDs and brief descriptions into a list for an IT inventory.
+            1. STRICT GROUNDING: ONLY use the provided text from the tool outputs. Do not invent vulnerabilities.
+            2. THE AUGMENTATION STEP: You must propose short, high-level "bridge statements" connecting isolated facts. (e.g., Explain why a CVE flaw found in this package is likely to enable a specific CAPEC attack pattern or ATT&CK technique found in the database).
+            3. COHERENT THREAT PICTURE: Format your response into a clear, readable Markdown report:
+               - Executive Summary
+               - Known Vulnerabilities (CVEs & Advisories)
+               - Linked Attack Patterns (CAPEC) & Behaviors (ATT&CK)
+               - Synthesized Threat Picture (Your bridge statements explaining the links)
         """)
         
-        # --- THE FIX: FILTER OUT AGENT 1's REFUSALS ---
-        # We keep the User prompt, the Tool Calls, and the Tool Outputs, 
-        # but we delete any plain text Agent 1 tried to say.
+        # KEPT: Filter out Agent 1's non-tool text
         clean_history = []
         for m in messages:
-            if isinstance(m, SystemMessage):
-                continue
-            # If Agent 1 generated text (like a refusal) instead of a tool call, hide it from Agent 2
-            if isinstance(m, AIMessage) and not m.tool_calls:
-                continue 
-            clean_history.append(m)
-
+            # Keep the user's initial request
+            if isinstance(m, HumanMessage):
+                clean_history.append(m)
+            # ONLY keep the raw data that came out of the SQLite tool
+            elif getattr(m, 'type', '') == "tool": 
+                clean_history.append(m)
+            # Completely ignore anything Agent 1 tried to say/hallucinate
+            
         analyzer_messages = [analyzer_prompt] + clean_history
         
-        print("\n\n--- [Agent 2: Analyzing Data & Writing Report] ---")
+        print("\n\n--- [Augmentation Agent: Synthesizing CTI Report] ---")
         response = llm.invoke(analyzer_messages)
         print("\n--------------------------------------------------\n")
         
         return {"messages": [response]}
 
-    # --- ROUTER LOGIC ---
+    # --- ROUTER LOGIC --- (KEPT)
     def should_continue(state):
         messages = state['messages']
         last_message = messages[-1]
         steps = state.get('steps_taken', 0)
         
-        # 1. Safety limit
         if steps >= MAX_STEPS:
             print(f"  🛑 [Limit Reached]: Forcing analysis after {steps} steps.")
             return "analyzer"
         
-        # 2. If Agent 1 used a tool, go to tools
         if last_message.tool_calls:
             return "tools"
             
-        # 3. If Agent 1 is done using tools, pass the baton to Agent 2
         return "analyzer"
 
-    # --- BUILD GRAPH ---
+    # --- BUILD GRAPH --- (KEPT)
     workflow = StateGraph(AgentState)
     
     workflow.add_node("researcher", researcher_node)
     workflow.add_node("tools", tool_node)
-    workflow.add_node("analyzer", analyzer_node) # New Node
+    workflow.add_node("analyzer", analyzer_node)
     
     workflow.set_entry_point("researcher")
     
@@ -132,6 +126,6 @@ def build_red_team_graph(llm, tools):
         }
     )
     workflow.add_edge("tools", "researcher")
-    workflow.add_edge("analyzer", END) # Only ends after Agent 2 finishes
+    workflow.add_edge("analyzer", END) 
     
     return workflow.compile()

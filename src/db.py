@@ -54,25 +54,46 @@ def init_db(conn: sqlite3.Connection) -> None:
 
     conn.execute(
         """
-        CREATE TABLE IF NOT EXISTS extracted_items (
+        CREATE TABLE IF NOT EXISTS normalized_items (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           run_id TEXT NOT NULL,
           package_name TEXT NOT NULL,
           source TEXT NOT NULL,
-          item_type TEXT NOT NULL,
-          item_id TEXT,
+          record_type TEXT,
+          canonical_id TEXT UNIQUE,
           title TEXT,
-          url TEXT,
-          published_at TEXT,
+          summary TEXT,
           severity TEXT,
-          raw_path TEXT NOT NULL,
-          extracted_at_utc TEXT NOT NULL
+          published_at TEXT,
+          references_json TEXT
         );
         """
     )
-
     conn.commit()
 
+def insert_normalized_batch(conn: sqlite3.Connection, run_id: str, package_name: str, rows: list[dict]):
+    for row in rows:
+        conn.execute(
+            """
+            INSERT OR IGNORE INTO normalized_items
+              (run_id, package_name, source, record_type, canonical_id, title, summary, severity, published_at, references_json)
+            VALUES
+              (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                run_id,
+                package_name,
+                row.get("source"),
+                row.get("record_type"),
+                row.get("canonical_id"),
+                row.get("title"),
+                row.get("summary"),
+                row.get("severity"),
+                row.get("published_at"),
+                str(row.get("references", []))
+            )
+        )
+    conn.commit()
 
 def insert_fetch_log(
     conn: sqlite3.Connection,
@@ -97,19 +118,3 @@ def insert_fetch_log(
     )
     conn.commit()
     return int(cur.lastrowid)
-
-
-def insert_extracted_items(
-    conn: sqlite3.Connection,
-    rows: Iterable[dict[str, Any]],
-) -> None:
-    conn.executemany(
-        """
-        INSERT INTO extracted_items
-          (run_id, package_name, source, item_type, item_id, title, url, published_at, severity, raw_path, extracted_at_utc)
-        VALUES
-          (:run_id, :package_name, :source, :item_type, :item_id, :title, :url, :published_at, :severity, :raw_path, :extracted_at_utc)
-        """,
-        list(rows),
-    )
-    conn.commit()

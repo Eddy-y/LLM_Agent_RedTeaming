@@ -1,4 +1,14 @@
 venv/
-.env
-__pycache__/
+.env*
+__pycache__/*
 data/
+venv*
+.venv*
+
+**/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.sqlite
+*.db
+.env
