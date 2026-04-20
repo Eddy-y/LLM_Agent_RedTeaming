@@ -38,7 +38,7 @@ class Settings:
     data_dir: Path = Path("data")
     db_path: Path = Path("data") / "pipeline.sqlite"
 
-    packages: tuple[str, ...] = ("django","flask")
+    packages: tuple[str, ...] = ("django",)
 
     github_token: str | None = _env("GITHUB_TOKEN")
     nvd_api_key: str | None = _env("NVD_API_KEY")

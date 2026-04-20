@@ -29,14 +29,13 @@ def build_red_team_graph(llm, tools):
             # REFACTORED: Now focuses entirely on querying your local normalized DB.
             sys_prompt = SystemMessage(content="""
             You are a CTI Data Retriever. 
+            YOUR GOAL: Execute tools to find threat intelligence.
             
-            YOUR GOAL: Execute tools to find threat intelligence data related to the requested package from our local, normalized SQLite database.
-            
-            CRITICAL RULES:
-            1. DO NOT hallucinate results. You cannot "guess" what the database contains.
-            2. TO USE A TOOL: You must strictly generate a "Tool Call".
-            3. PARAMETERS: You MUST provide the 'package_name' parameter for every tool.
-            4. Once you have called the tools and received the data, your job is completely done. Stop generating text.
+            CRITICAL TOOL CALLING RULES:
+            1. The 'search_local_cti' tool requires a SINGLE, FLAT string parameter named 'package_name'.
+            2. DO NOT pass dictionaries or schema definitions. 
+            3. CORRECT format: {"package_name": "django"}
+            4. INCORRECT format: {"package_name": {"type": "string", "value": "django"}}
             
             Valid Tools:
             - search_local_cti(package_name=str)
@@ -87,6 +86,20 @@ def build_red_team_graph(llm, tools):
             
         analyzer_messages = [analyzer_prompt] + clean_history
         
+        # =====================================================================
+        # 🚨 DEBUG: RAW DATABASE INPUT TO ANALYZER 🚨
+        # =====================================================================
+        print("\n" + "!"*70)
+        print("🕵️‍♂️ INTERCEPTED: DATA FED TO ANALYZER 🕵️‍♂️")
+        print("!"*70)
+        for msg in clean_history:
+            if getattr(msg, 'type', '') == "tool":
+                print(f"\n🛠️  TOOL USED: {msg.name}")
+                print(f"📄 RAW DATABASE OUTPUT:\n{msg.content}")
+                print("-" * 70)
+        print("!"*70 + "\n")
+        # =====================================================================
+
         print("\n\n--- [Augmentation Agent: Synthesizing CTI Report] ---")
         response = llm.invoke(analyzer_messages)
         print("\n--------------------------------------------------\n")
