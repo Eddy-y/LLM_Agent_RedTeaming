@@ -1,3 +1,8 @@
+import warnings
+import os
+warnings.filterwarnings("ignore") # Silences the __path__ alias warnings
+os.environ["TRANSFORMERS_VERBOSITY"] = "error" # Silences transformers warnings
+
 import streamlit as st
 import pandas as pd
 from pathlib import Path
@@ -78,7 +83,7 @@ try:
     metrics_df = pd.read_csv("data/research_metrics.csv")
     
     # Display it as an interactive table
-    st.dataframe(metrics_df, use_container_width=True)
+    st.dataframe(metrics_df, width="stretch")
     
     # Optional: Display a quick metric summary
     col1, col2, col3 = st.columns(3)

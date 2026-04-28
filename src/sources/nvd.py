@@ -37,8 +37,7 @@ def fetch_nvd_cves(
         headers["apiKey"] = api_key
 
     params = {
-        "keywordSearch": package,
-        "keywordExactMatch": "", 
+        "keywordSearch": f"python {package}", # This blocks Xen 'FLASK' from downloading
         "resultsPerPage": results_per_page,
     }
 
