@@ -135,6 +135,20 @@ def build_red_team_graph(llm, tools=None):
             
         analyzer_messages = [analyzer_prompt] + clean_history
         
+        # =====================================================================
+        # 🚨 DEBUG: RAW DATABASE INPUT TO ANALYZER 🚨
+        # =====================================================================
+        print("\n" + "!"*70)
+        print("🕵️‍♂️ INTERCEPTED: DATA FED TO ANALYZER 🕵️‍♂️")
+        print("!"*70)
+        for msg in clean_history:
+            if getattr(msg, 'type', '') == "tool":
+                print(f"\n🛠️  TOOL USED: {msg.name}")
+                print(f"📄 RAW DATABASE OUTPUT:\n{msg.content}")
+                print("-" * 70)
+        print("!"*70 + "\n")
+        # =====================================================================
+
         print("\n\n--- [Augmentation Agent: Synthesizing CTI Report] ---")
         response = llm.invoke(analyzer_messages)
         

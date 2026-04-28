@@ -1,11 +1,22 @@
 import time
 from langchain_core.messages import HumanMessage
-from src.metrics import log_metric
+from dotenv import load_dotenv 
 
-# Assuming SUMMARY_FILE, FULL_LOG_FILE, MODEL_NAME are defined here as before
-SUMMARY_FILE = "data/agent_summary.csv"
-FULL_LOG_FILE = "data/evaluation_results.jsonl"
-MODEL_NAME = "llama3.2" # Your local model
+load_dotenv()
+
+# --- Local Imports ---
+from src.db import connect
+from engine import load_tool_capable_model
+from src.tools import search_tools       
+from src.verifier import run_verification_and_log
+from agents import build_red_team_graph  
+
+# --- CONFIGURATION ---
+DB_PATH = Path("data/pipeline.sqlite")
+FULL_LOG_FILE = Path("data/evaluation_results.jsonl")  
+SUMMARY_FILE = Path("data/agent_summary.csv")          
+MODEL_NAME = "llama3.2" 
+
 
 def run_red_team_evaluation(agent_app, packages: list[str]):
     """
