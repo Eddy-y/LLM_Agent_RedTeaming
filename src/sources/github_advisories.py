@@ -13,6 +13,7 @@ from __future__ import annotations
 from typing import Any
 
 import requests
+from tenacity import retry, wait_exponential, stop_after_attempt
 
 from ..utils import utc_now_iso
 
@@ -55,7 +56,7 @@ def _build_query() -> str:
     }
     """
 
-
+@retry(wait=wait_exponential(multiplier=2, min=4, max=10), stop=stop_after_attempt(3))
 def fetch_github_advisories(
     package: str,
     *,
@@ -76,9 +77,6 @@ def fetch_github_advisories(
 
     query = _build_query()
     after = None
-    
-    # We use a dictionary to deduplicate advisories by GHSA ID
-    # (Multiple vulnerabilities might point to the same advisory)
     unique_advisories: dict[str, dict] = {}
 
     try:
@@ -96,6 +94,11 @@ def fetch_github_advisories(
                 timeout=timeout_seconds,
             )
             status = resp.status_code
+            
+            # GitHub specific rate limit (403) and standard errors
+            if status in [403, 429, 500, 502, 503, 504]:
+                resp.raise_for_status()
+
             if status != 200:
                 return status, None, f"GitHub GraphQL returned status {status}: {resp.text[:200]}", endpoint
 
@@ -103,7 +106,6 @@ def fetch_github_advisories(
             if "errors" in data:
                 return status, data, f"GitHub GraphQL errors: {data['errors']}", endpoint
 
-            # NAVIGATION CHANGE: data -> securityVulnerabilities -> nodes
             vuln_data = (((data.get("data") or {}).get("securityVulnerabilities") or {}))
             nodes = vuln_data.get("nodes") or []
             
@@ -119,10 +121,13 @@ def fetch_github_advisories(
                 break
             after = page_info.get("endCursor")
 
-        # Convert back to list for the payload
         payload = {"package": package, "nodes": list(unique_advisories.values())}
         return 200, payload, None, endpoint
 
+    except requests.exceptions.HTTPError as e:
+        if e.response.status_code in [403, 429, 500, 502, 503, 504]:
+            raise
+        return e.response.status_code, None, f"GitHub advisories HTTP error: {e}", endpoint
     except Exception as e:
         return None, None, f"GitHub advisories request failed: {e}", endpoint
 
@@ -133,7 +138,6 @@ def extract_github_items(package: str, raw_path: str, payload: dict[str, Any], r
     """
     items: list[dict[str, Any]] = []
     
-    # Payload nodes are now flat Advisory objects, so this logic stays simple
     for node in payload.get("nodes", []):
         ghsa_id = node.get("ghsaId")
         summary = node.get("summary") or ""

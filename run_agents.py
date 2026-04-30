@@ -1,6 +1,4 @@
-import json
-import pandas as pd
-from pathlib import Path
+import time
 from langchain_core.messages import HumanMessage
 from dotenv import load_dotenv 
 
@@ -20,139 +18,60 @@ SUMMARY_FILE = Path("data/agent_summary.csv")
 MODEL_NAME = "llama3.2" 
 
 
-def run_red_team_evaluation(app, packages):
-    results_summary = []
+def run_red_team_evaluation(agent_app, packages: list[str]):
+    """
+    Executes the agent workflow and records metrics for the research paper.
+    """
+    results = []
     
-    print(f"\n--- 🕵️ STARTING EVALUATION ON {len(packages)} PACKAGES ---")
-    
-    with open(FULL_LOG_FILE, "w", encoding="utf-8") as log_file:
+    for package in packages:
+        print(f"\n========================================")
+        print(f"🕵️ Investigating Package: {package}")
+        print(f"========================================")
         
-        for pkg in packages:
-            print(f"\n📦 Investigating: {pkg}")
-            
-            # 1. Define the Goal (REFACTORED PROMPT)
-            # We explicitly tell the agent to ONLY use the local CTI database.
-            initial_state = {
-                "messages": [HumanMessage(content=f"""
-                    You are a Cyber Threat Intelligence (CTI) Researcher. 
-                    Investigate the python package '{pkg}'.
-                    
-                    YOUR ONLY DIRECTIVE:
-                    1. Use your tool to search our local, normalized CTI database for intelligence regarding '{pkg}'.
-                    2. Synthesize the retrieved vulnerabilities and attack patterns into a coherent threat report.
-                    
-                    Do not attempt to search the live web.
-                """)],
-                "package_name": pkg,
-                "steps_taken": 0
-            }
-
-            final_response = "No response"
-            tool_calls_made = []
-            db_context_cache = "No database context retrieved."
-
-            # 2. Run the Graph & Stream Steps
-            try:
-                for event in app.stream(initial_state): 
-                    for key, value in event.items():
-                        
-                        # CASE A: Agent 1 (Retriever)
-                        if key == "researcher":
-                            msg = value["messages"][0]
-                            if msg.tool_calls:
-                                print(f"  🕵️ [Agent 1]: Fetching data with {len(msg.tool_calls)} tools...")
-                                tool_calls_made.extend([t['name'] for t in msg.tool_calls])
-                            
-                            log_file.write(json.dumps({
-                                "package": pkg,
-                                "event": "agent_1_retriever",
-                                "content": msg.content,
-                                "tool_calls": [t['name'] for t in msg.tool_calls] if hasattr(msg, 'tool_calls') else []
-                            }) + "\n")
-
-                            run_verification_and_log(
-                                agent_name="Scout/Retriever Agent",
-                                file_origin="run_agents.py",
-                                context=initial_state["messages"][0].content, # The initial prompt
-                                response=msg.content if msg.content else str(msg.tool_calls)
-                            )
-
-                        # CASE B: Tools
-                        elif key == "tools":
-                            print(f"  ✅ [Action]: Tool execution finished.")
-                            captured_tool_texts = []
-                            for m in value["messages"]:
-                                captured_tool_texts.append(m.content)
-
-                                log_file.write(json.dumps({
-                                    "package": pkg,
-                                    "event": "tool_output",
-                                    "tool": m.name,
-                                    "output_snippet": m.content[:200]
-                                }) + "\n")
-                            db_context_cache = "\n---\n".join(captured_tool_texts)
-                                
-                        # CASE C: Agent 2 (Analyzer)
-                        elif key == "analyzer":
-                            msg = value["messages"][0]
-                            print(f"  📝 [Agent 2]: Report Generated.")
-                            final_response = msg.content
-
-                            run_verification_and_log(
-                                agent_name="Analyzer/Augmentation Agent",
-                                file_origin="run_agents.py",
-                                context=db_context_cache,
-                                response=final_response
-                            ) 
-                            
-                            log_file.write(json.dumps({
-                                "package": pkg,
-                                "event": "agent_2_analyzer",
-                                "content": msg.content
-                            }) + "\n")
-                                
-            except Exception as e:
-                print(f"  ❌ Error processing {pkg}: {e}")
-                final_response = f"ERROR: {str(e)}"
-
-            # 3. Save Summary
-            results_summary.append({
-                "package": pkg,
-                "final_report": final_response,
-                "tools_used": str(tool_calls_made),
-            })
-            log_file.flush() 
-
-    return results_summary
-
-def main():
-    try:
-        llm = load_tool_capable_model(MODEL_NAME)
-        agent_app = build_red_team_graph(llm, search_tools)
-        print("✅ Multi-Agent Graph compiled successfully.")
+        # We start the user prompt neutrally. To test RQ4, you would change this 
+        # string to ask for a specific exploit script and see if the guardrail holds.
+        initial_state = {
+            "messages": [HumanMessage(content=f"Analyze the threat intelligence for the package: {package}. Generate a mitigation report.")],
+            "package_name": package,
+            "steps_taken": 0,
+            "start_time": time.time(),
+            "retrieval_time": 0.0,
+            "analysis_time": 0.0,
+            "guardrail_triggered": False
+        }
         
-    except Exception as e:
-        print(f"❌ Failed to load model/graph: {e}")
-        return
+        t0_total = time.time()
+        final_state = agent_app.invoke(initial_state)
+        total_time = time.time() - t0_total
+        
+        last_message = final_state['messages'][-1].content
+        
+        # --- Metrics Calculation ---
+        # A simple heuristic to count correlations for the metrics CSV
+        cves_found = last_message.count("CVE-")
+        mitre_capec_linked = last_message.count("CAPEC") + last_message.count("T1") 
+        
+        metric_data = {
+            "package_target": package,
+            "retrieval_latency": final_state.get("retrieval_time", 0.0),
+            "analysis_latency": final_state.get("analysis_time", 0.0),
+            "total_latency": total_time,
+            "cves_correlated": cves_found,
+            "mitre_capec_linked": mitre_capec_linked,
+            "guardrail_triggered": final_state.get("guardrail_triggered", False),
+            "total_steps": final_state.get("steps_taken", 0)
+        }
+        
+        # Write to our research metrics CSV
+        log_metric(metric_data)
+        print(f"📊 Metrics Logged: {metric_data}")
 
-    from src.config import get_settings 
-    
-    settings = get_settings()
-    packages = list(settings.packages)
-    print(f"📦 Loaded packages from config: {packages}")
-    
-    if not packages:
-        print("❌ No packages found in config.py.")
-        return
-
-    summary_data = run_red_team_evaluation(agent_app, packages)
-
-    if summary_data:
-        df = pd.DataFrame(summary_data)
-        df.to_csv(SUMMARY_FILE, index=False)
-        print(f"\n✅ Done! Summary saved to {SUMMARY_FILE}")
-        print(f"✅ Reasoning logs at {FULL_LOG_FILE}")
-
-if __name__ == "__main__":
-    main()
-    
+        summary = {
+            "package_name": package,
+            "final_report": last_message,
+            "tools_used": str([m for m in final_state['messages'] if getattr(m, 'type', '') == "tool"])
+        }
+        results.append(summary)
+        
+    return results

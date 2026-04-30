@@ -1,24 +1,47 @@
+import os
+import json
 import requests
-from .config import CAPEC_URL
+from pathlib import Path
+from tenacity import retry, wait_exponential, stop_after_attempt
+from .config import CAPEC_URL, get_settings
 
 MITRE_URL = "https://raw.githubusercontent.com/mitre/cti/master/enterprise-attack/enterprise-attack.json"
 
+def _get_cached_universal(url: str, filename: str) -> dict:
+    """Downloads the universal database once and caches it locally."""
+    settings = get_settings()
+    cache_path = Path(settings.data_dir) / "universal_cache" / filename
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+    
+    if cache_path.exists():
+        with open(cache_path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    
+    print(f"    [Cache Miss] Downloading {filename} to local cache...")
+    resp = requests.get(url, timeout=90)
+    resp.raise_for_status()
+    data = resp.json()
+    
+    with open(cache_path, "w", encoding="utf-8") as f:
+        json.dump(data, f)
+    return data
+
+@retry(wait=wait_exponential(multiplier=1, min=2, max=10), stop=stop_after_attempt(3))
 def fetch_mitre_objects(offset=0, limit=5):
     print(f"    [MITRE] Fetching items {offset} to {offset+limit}...")
     try:
-        resp = requests.get(MITRE_URL, timeout=90)
-        data = resp.json()
+        data = _get_cached_universal(MITRE_URL, "mitre.json")
         objects = [obj for obj in data.get("objects", []) if obj.get("type") == "attack-pattern"]
         return {"objects": objects[offset : offset + limit]}
     except Exception as e:
         print(f"    [!] MITRE Error: {e}")
         return {"objects": []}
 
+@retry(wait=wait_exponential(multiplier=1, min=2, max=10), stop=stop_after_attempt(3))
 def fetch_capec_objects(offset=0, limit=5):
     print(f"    [CAPEC] Fetching items {offset} to {offset+limit}...")
     try:
-        resp = requests.get(CAPEC_URL, timeout=30)
-        data = resp.json()
+        data = _get_cached_universal(CAPEC_URL, "capec.json")
         objects = [obj for obj in data.get("objects", []) if obj.get("type") == "attack-pattern"]
         return {"objects": objects[offset : offset + limit]}
     except Exception as e:
