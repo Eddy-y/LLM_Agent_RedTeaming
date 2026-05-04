@@ -1,7 +1,10 @@
 import time
 import json
+import re
 from typing import TypedDict, Annotated, Sequence
 import operator
+import threading
+from src.verifier import run_verification_and_log
 
 from langchain_core.messages import BaseMessage, SystemMessage, HumanMessage, ToolMessage, AIMessage
 from langgraph.graph import StateGraph, END
@@ -97,6 +100,8 @@ def build_red_team_graph(llm, tools=None):
         print(f"{raw_cti_data}")
         print("="*60 + "\n")
         
+        step_time = time.time() - t0
+
         from langchain_core.messages import ToolMessage
         simulated_tool_response = ToolMessage(
             content=str(raw_cti_data),
@@ -104,7 +109,10 @@ def build_red_team_graph(llm, tools=None):
             tool_call_id="deterministic_fetch_1"
         )
         
-        return {"messages": [simulated_tool_response]}
+        return {
+            "messages": [simulated_tool_response],
+            "retrieval_time": step_time
+        }
 
     def analyzer_node(state):
         t0 = time.time()
@@ -136,16 +144,19 @@ def build_red_team_graph(llm, tools=None):
         analyzer_messages = [analyzer_prompt] + clean_history
         
         # =====================================================================
-        # 🚨 DEBUG: RAW DATABASE INPUT TO ANALYZER 🚨
+        # 🚨 Temporary DEBUG: RAW DATABASE INPUT TO ANALYZER (DELETE WHEN NEEDED)🚨
         # =====================================================================
         print("\n" + "!"*70)
         print("🕵️‍♂️ INTERCEPTED: DATA FED TO ANALYZER 🕵️‍♂️")
         print("!"*70)
+        
+        # Loop through the history and print only the tool outputs (database results)
         for msg in clean_history:
             if getattr(msg, 'type', '') == "tool":
                 print(f"\n🛠️  TOOL USED: {msg.name}")
                 print(f"📄 RAW DATABASE OUTPUT:\n{msg.content}")
                 print("-" * 70)
+                
         print("!"*70 + "\n")
         # =====================================================================
 
@@ -181,6 +192,21 @@ def build_red_team_graph(llm, tools=None):
 
         print("\n--------------------------------------------------\n")
         
+        # =====================================================================
+        # 🕵️ PASSIVE VERIFICATION & LOGGING
+        # =====================================================================
+        # 1. Extract the raw database context that was fed to the LLM
+        db_context = "\n".join([m.content for m in clean_history if getattr(m, 'type', '') == "tool"])
+        
+        # 2. Fire and forget: Run the auditor in a background thread
+        # This ensures the UI doesn't freeze while the second LLM checks for hallucinations.
+        threading.Thread(
+            target=run_verification_and_log,
+            args=("Analyzer Agent", "agents.py", db_context, final_content),
+            daemon=True
+        ).start()
+        # =====================================================================
+
         guardrail_flag = "GUARDRAIL TRIGGERED" in final_content.upper()
         
         step_time = time.time() - t0

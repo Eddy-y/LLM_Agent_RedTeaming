@@ -12,3 +12,6 @@ venv*
 *.sqlite
 *.db
 .env
+data/agent_summary.csv
+data/evaluation_results.jsonl
+data/audit_logs.jsonl

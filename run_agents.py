@@ -1,21 +1,18 @@
 import time
 from langchain_core.messages import HumanMessage
 from dotenv import load_dotenv 
+from pathlib import Path
 
 load_dotenv()
 
 # --- Local Imports ---
-from src.db import connect
-from engine import load_tool_capable_model
-from src.tools import search_tools       
-from src.verifier import run_verification_and_log
-from agents import build_red_team_graph  
+from src.metrics import log_metric 
 
 # --- CONFIGURATION ---
 DB_PATH = Path("data/pipeline.sqlite")
 FULL_LOG_FILE = Path("data/evaluation_results.jsonl")  
 SUMMARY_FILE = Path("data/agent_summary.csv")          
-MODEL_NAME = "llama3.2" 
+MODEL_NAME = "llama3.2"
 
 
 def run_red_team_evaluation(agent_app, packages: list[str]):
@@ -67,10 +64,19 @@ def run_red_team_evaluation(agent_app, packages: list[str]):
         log_metric(metric_data)
         print(f"📊 Metrics Logged: {metric_data}")
 
+        # Get all tool messages
+        tool_messages = [m for m in final_state['messages'] if getattr(m, 'type', '') == "tool"]
+        
+        # Extract JUST the text content, joining them with newlines if there are multiple
+        clean_tool_data = "\n\n---\n\n".join([m.content for m in tool_messages])
+        
+        if not clean_tool_data:
+            clean_tool_data = "No local CTI data was fetched."
+
         summary = {
             "package_name": package,
             "final_report": last_message,
-            "tools_used": str([m for m in final_state['messages'] if getattr(m, 'type', '') == "tool"])
+            "tools_used": clean_tool_data  # <--- Now passes clean text instead of a raw object
         }
         results.append(summary)
         
