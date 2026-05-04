@@ -144,21 +144,29 @@ def build_red_team_graph(llm, tools=None):
         analyzer_messages = [analyzer_prompt] + clean_history
         
         # =====================================================================
-        # 🚨 Temporary DEBUG: RAW DATABASE INPUT TO ANALYZER (DELETE WHEN NEEDED)🚨
+        # 🚨 DEBUG: LOG DATABASE INPUT TO FILE 🚨 DELETE WHEN NEEDED
         # =====================================================================
-        print("\n" + "!"*70)
-        print("🕵️‍♂️ INTERCEPTED: DATA FED TO ANALYZER 🕵️‍♂️")
-        print("!"*70)
-        
-        # Loop through the history and print only the tool outputs (database results)
-        for msg in clean_history:
-            if getattr(msg, 'type', '') == "tool":
-                print(f"\n🛠️  TOOL USED: {msg.name}")
-                print(f"📄 RAW DATABASE OUTPUT:\n{msg.content}")
-                print("-" * 70)
+        try:
+            # Open (or create) a text file in append mode
+            with open("data/database_input_log.txt", "a", encoding="utf-8") as debug_file:
+                debug_file.write("\n" + "="*70 + "\n")
+                debug_file.write(f"🕒 Time: {time.ctime()}\n")
+                debug_file.write(f"📦 Target Package: {state.get('package_name', 'Unknown')}\n")
+                debug_file.write("🕵️‍♂️ DATA FED TO ANALYZER 🕵️‍♂️\n")
+                debug_file.write("="*70 + "\n")
                 
-        print("!"*70 + "\n")
+                # Loop through the history and write only the database outputs
+                for msg in clean_history:
+                    if getattr(msg, 'type', '') == "tool":
+                        debug_file.write(f"\n🛠️  TOOL: {msg.name}\n")
+                        debug_file.write(f"📄 DATABASE CONTEXT:\n{msg.content}\n")
+                        debug_file.write("-" * 70 + "\n")
+        except Exception as e:
+            print(f"[!] Could not write debug log: {e}")
         # =====================================================================
+        
+        print("\n\n--- [Augmentation Agent: Synthesizing CTI Report] ---")
+        response = llm.invoke(analyzer_messages)
 
         print("\n\n--- [Augmentation Agent: Synthesizing CTI Report] ---")
         response = llm.invoke(analyzer_messages)

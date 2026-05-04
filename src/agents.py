@@ -19,12 +19,6 @@ def query_ollama(prompt, data_snippet, agent_name="Unknown Agent", file_origin="
         raw_output = resp.json()["message"]["content"]
         print(f"\n[LLM RAW OUTPUT]:\n{raw_output}\n")
 
-        run_verification_and_log(
-            agent_name=agent_name, 
-            file_origin=file_origin, 
-            context=data_snippet, 
-            response=raw_output
-        )
         
         return json.loads(raw_output)
     except Exception as e:
