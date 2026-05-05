@@ -1,28 +1,51 @@
 import requests
 import json
-from .config import OLLAMA_URL, OLLAMA_MODEL
+import boto3
+from .config import get_settings
 from .verifier import run_verification_and_log
+from botocore.exceptions import ClientError
 
-def query_ollama(prompt, data_snippet, agent_name="Unknown Agent", file_origin="src/agents.py"):
-    """Sends the prompt and data to the local Ollama LLM."""
+# Initialize the Bedrock client using your SSO credentials
+aws_session = boto3.Session(profile_name=get_settings().aws_profile_name)
+bedrock_client = aws_session.client('bedrock-runtime', region_name='us-east-1')
+
+# Using Llama 3 8B Instruct, as your prompts are already tuned for Llama
+BEDROCK_MODEL_ID = "meta.llama3-8b-instruct-v1:0"
+
+def query_bedrock(prompt, data_snippet, agent_name="Unknown Agent", file_origin="src/agents.py"):
+    """Sends the prompt and data to Amazon Bedrock."""
     content = f"{prompt}\n\nDATA SNIPPET:\n{json.dumps(data_snippet)[:2000]}"
+    
+    # Payload formatted specifically for Meta Llama 3 on Bedrock
     payload = {
-        "model": OLLAMA_MODEL,
-        "messages": [{"role": "user", "content": content}],
-        "stream": False,
-        "format": "json"
+        "prompt": f"<|begin_of_text|><|start_header_id|>user<|end_header_id|>\n\n{content}<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n",
+        "max_gen_len": 512,
+        "temperature": 0.1,
+        "top_p": 0.9
     }
+    
     try:
-        resp = requests.post(OLLAMA_URL, json=payload, timeout=180)
-        resp.raise_for_status()
+        resp = bedrock_client.invoke_model(
+            modelId=BEDROCK_MODEL_ID,
+            contentType="application/json",
+            accept="application/json",
+            body=json.dumps(payload)
+        )
         
-        raw_output = resp.json()["message"]["content"]
-        print(f"\n[LLM RAW OUTPUT]:\n{raw_output}\n")
-
+        response_body = json.loads(resp.get('body').read())
+        raw_output = response_body['generation']
         
-        return json.loads(raw_output)
-    except Exception as e:
-        print(f"      [!] Agent Error: {e}")
+        print(f"\n[{agent_name} - BEDROCK OUTPUT]:\n{raw_output}\n")
+        
+        # Clean markdown formatting if the LLM includes it
+        clean_output = raw_output.replace("```json", "").replace("```", "").strip()
+        return json.loads(clean_output)
+        
+    except ClientError as e:
+        print(f"      [!] AWS Bedrock Error: {e}")
+        return {}
+    except json.JSONDecodeError:
+        print(f"      [!] JSON Parse Error. Raw Output was: {raw_output}")
         return {}
 
 def _execute_specialist(raw_items, prompt, source_name):
@@ -30,7 +53,7 @@ def _execute_specialist(raw_items, prompt, source_name):
     candidates = []
     print(f"    [{source_name.upper()} Agent] Analyzing {len(raw_items)} items...")
     for item in raw_items:
-        result = query_ollama(prompt, item, agent_name=f"{source_name.upper()} Specialist")
+        result = query_bedrock(prompt, item, agent_name=f"{source_name.upper()} Specialist")
         if result and result.get("id"):
             result["_origin_source"] = source_name
             candidates.append(result)
@@ -118,7 +141,7 @@ def run_central_normalizer(specialist_outputs, source_name):
     normalized_results = []
     
     for item in specialist_outputs:
-        result = query_ollama(prompt, item, agent_name="Central Normalizer")
+        result = query_bedrock(prompt, item, agent_name="Central Normalizer")
         if result and result.get("canonical_id"):
             normalized_results.append(result)
             print("+", end="", flush=True)
