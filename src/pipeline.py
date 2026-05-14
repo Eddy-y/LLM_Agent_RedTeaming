@@ -6,6 +6,7 @@ Extracts items using Explicit LLM Specialist Agents and Normalizer into unified 
 
 from __future__ import annotations
 import concurrent.futures
+import boto3, json
 from pathlib import Path
 from typing import Any
 from dotenv import load_dotenv
@@ -30,11 +31,38 @@ from .agents import (
     run_central_normalizer
 )
 
+# Initialize SQS client
+sqs_client = boto3.client('sqs')
+SQS_QUEUE_URL = "https://sqs.us-east-1.amazonaws.com/123456789012/CTI-Ingestion-Queue" # We will create this queue in the AWS Console
+
 def _raw_path_for(data_dir: Path, run_id: str, package: str, source: str) -> Path:
     pkg = safe_slug(package)
     src = safe_slug(source)
     return data_dir / "raw" / run_id / pkg / f"{src}.json"
 
+def process_payload_with_agents(conn, run_id, package, source_name, raw_items, agent_function_name):
+    """
+    MODIFIED for AWS: Instead of processing locally, push the raw item to an SQS Queue.
+    """
+    if not raw_items:
+        return
+
+    print(f"    [SQS] Queuing {len(raw_items)} items for {source_name} processing...")
+    
+    for item in raw_items:
+        # Package the data into a standard message format
+        message_body = {
+            "run_id": run_id,
+            "package_target": package,
+            "source": source_name,
+            "raw_payload": item
+        }
+        
+        # Fire and forget to AWS SQS
+        sqs_client.send_message(
+            QueueUrl=SQS_QUEUE_URL,
+            MessageBody=json.dumps(message_body)
+        )
 
 def run_pipeline(packages: list[str] | None = None) -> str:
     load_dotenv()
@@ -57,31 +85,7 @@ def run_pipeline(packages: list[str] | None = None) -> str:
 
     conn.close()
     return run_id
-
-
-def process_payload_with_agents(conn, run_id, package, source_name, raw_items, agent_function):
-    """
-    Helper function to pass raw data through a specific Specialist -> Normalizer -> DB.
-    Now passes source_name to the normalizer for dynamic context.
-    """
-    if not raw_items:
-        return
-
-    if source_name == "nvd":
-        specialist_output = agent_function(raw_items, package)
-    else:
-        specialist_output = agent_function(raw_items)
-    
-    if specialist_output:
-        normalized_data = run_central_normalizer(specialist_output, source_name)
-        
-        if normalized_data:
-            for item in normalized_data:
-                item["source"] = source_name
-                
-            insert_normalized_batch(conn, run_id, package, normalized_data)
-            print(f"    [DB] Saved {len(normalized_data)} normalized records for {source_name}.")
-            
+           
 def _run_universal_corpora(conn, run_id):
     print("\n--- Processing Universal Corpora (MITRE & CAPEC) ---")
     state = load_state()
