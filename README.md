@@ -1,6 +1,3 @@
-Here is the updated `README.md` rewritten to accurately reflect your new cloud-native AWS architecture, the decoupled FastAPI backend, and the Amazon Bedrock LLM integrations.
-
-```markdown
 # Multi-Agent CTI Red Teaming & Augmentation Pipeline (AWS Native)
 
 This project implements a fully scalable, cloud-native multi-agent Cyber Threat Intelligence (CTI) architecture. It uses Amazon Bedrock Large Language Models (LLMs) to automatically ingest, normalize, and synthesize threat data from multiple disparate sources into actionable security reports for the Python ecosystem.
@@ -26,9 +23,7 @@ This frontend layer exposes the CTI Augmentation Agent as a decoupled REST API u
 2. **Amazon Bedrock Access:** You must request access to the Meta Llama 3 models (e.g., `meta.llama3-8b-instruct-v1:0`) in the AWS `us-east-1` region.
 3. **Python 3.10+**
 4. **Dependencies:** ```bash
-   pip install fastapi uvicorn boto3 psycopg2-binary langchain langchain-aws langgraph python-dotenv
-
-```
+   pip install fastapi uvicorn boto3 psycopg2-binary langchain langchain-aws langgraph python-dotenv```
 
 ## ⚙️ How to Run the Project
 
@@ -40,7 +35,6 @@ First, deploy your AWS infrastructure (SQS queues, Lambda concurrency limits, RD
 sam deploy -t template.yaml --guided
 
 ```
-
 Once the RDS instance is live, initialize the PostgreSQL schema and metrics tracking tables:
 
 ```bash
