@@ -27,34 +27,44 @@ MAX_STEPS = 6
 
 def fetch_local_cti_data(keywords: list):
     """
-    Heuristic Search: Looks for patterns/keywords in the database 
+    Heuristic Search: Looks for patterns/keywords in the PostgreSQL database 
     rather than exact package matches.
     """
-    import sqlite3
+    import psycopg2.extras
+    from src.db import get_db_connection
+    
     try:
-        conn = sqlite3.connect("data/pipeline.sqlite")
-        conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
+        # 1. Connect to Amazon RDS
+        conn = get_db_connection()
+        if not conn:
+            return "Error: Could not connect to the cloud database."
         
-        # Build a dynamic SQL query using OR / LIKE for heuristic matching
-        query_conditions = " OR ".join(["summary LIKE ? OR title LIKE ?" for _ in keywords])
+        # Use RealDictCursor so PostgreSQL rows behave exactly like Python dictionaries
+        cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        
+        # 2. Build a dynamic SQL query using ILIKE for case-insensitive matching
+        # and %s instead of ? for PostgreSQL parameter binding
+        query_conditions = " OR ".join(["summary ILIKE %s OR title ILIKE %s" for _ in keywords])
         
         params = []
         for kw in keywords:
-            params.extend([f"%{kw}%", f"%{kw}%"]) # % allows partial matching
+            params.extend([f"%{kw}%", f"%{kw}%"]) 
             
         sql = f"SELECT * FROM normalized_items WHERE {query_conditions} LIMIT 10"
         cursor.execute(sql, params)
         rows = cursor.fetchall()
+        
+        # 3. Always close the connection to avoid maxing out the RDS pool!
+        conn.close()
         
         if not rows:
             return f"No records found matching heuristic keywords: {keywords}"
             
         formatted_report = f"Heuristic Database Matches for {keywords}:\n\n"
         for row in rows:
-            vuln = dict(row)
-            formatted_report += f"- ID: {vuln.get('canonical_id')} (Package: {vuln.get('package_name')}, Severity: {vuln.get('severity')})\n"
-            formatted_report += f"  Summary: {vuln.get('summary')}\n\n"
+            # Because we used RealDictCursor, 'row' is already a dictionary
+            formatted_report += f"- ID: {row.get('canonical_id')} (Package: {row.get('package_name')}, Severity: {row.get('severity')})\n"
+            formatted_report += f"  Summary: {row.get('summary')}\n\n"
 
         return formatted_report
         
@@ -142,28 +152,6 @@ def build_red_team_graph(llm, tools=None):
                 clean_history.append(m)
             
         analyzer_messages = [analyzer_prompt] + clean_history
-        
-        # =====================================================================
-        # 🚨 DEBUG: LOG DATABASE INPUT TO FILE 🚨 DELETE WHEN NEEDED
-        # =====================================================================
-        try:
-            # Open (or create) a text file in append mode
-            with open("data/database_input_log.txt", "a", encoding="utf-8") as debug_file:
-                debug_file.write("\n" + "="*70 + "\n")
-                debug_file.write(f"🕒 Time: {time.ctime()}\n")
-                debug_file.write(f"📦 Target Package: {state.get('package_name', 'Unknown')}\n")
-                debug_file.write("🕵️‍♂️ DATA FED TO ANALYZER 🕵️‍♂️\n")
-                debug_file.write("="*70 + "\n")
-                
-                # Loop through the history and write only the database outputs
-                for msg in clean_history:
-                    if getattr(msg, 'type', '') == "tool":
-                        debug_file.write(f"\n🛠️  TOOL: {msg.name}\n")
-                        debug_file.write(f"📄 DATABASE CONTEXT:\n{msg.content}\n")
-                        debug_file.write("-" * 70 + "\n")
-        except Exception as e:
-            print(f"[!] Could not write debug log: {e}")
-        # =====================================================================
         
         print("\n\n--- [Augmentation Agent: Synthesizing CTI Report] ---")
         response = llm.invoke(analyzer_messages)

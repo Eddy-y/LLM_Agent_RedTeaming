@@ -46,8 +46,24 @@ Resources:
               Action:
                 - bedrock:InvokeModel
               Resource: "*"
+      
+  # Create the PostgreSQL Database
+  CtiDatabase:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      DBInstanceClass: db.t3.micro # Free-tier eligible
+      Engine: postgres
+      EngineVersion: "15.4"
+      AllocatedStorage: 20
+      MasterUsername: cti_admin
+      MasterUserPassword: "{{resolve:ssm-secure:CTI_DB_PASSWORD:1}}" # Securely fetches from AWS Secrets Manager
+      PubliclyAccessible: false
 
   Environment:
         Variables:
-          # Hardcode the cheap model here so the cloud always uses it
           BEDROCK_MODEL_ID: "meta.llama3-8b-instruct-v1:0"
+          DB_HOST: !GetAtt CtiDatabase.Endpoint.Address
+          DB_USER: cti_admin
+          DB_NAME: postgres
+
+          
