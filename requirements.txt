@@ -7,7 +7,6 @@ python-dotenv
 langchain_ollama
 langgraph
 python-dotenv
-streamlit
 boto3
 langchain-aws
 psycopg2-binary

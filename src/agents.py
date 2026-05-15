@@ -1,3 +1,7 @@
+"""
+src/agents.py
+Houses the specialized LLM agents for data extraction and normalization during SQS ingestion.
+"""
 import os
 import requests
 import json
@@ -9,8 +13,6 @@ from botocore.exceptions import ClientError
 # Initialize the Bedrock client using your SSO credentials
 aws_session = boto3.Session(profile_name=get_settings().aws_profile_name)
 bedrock_client = aws_session.client('bedrock-runtime', region_name='us-east-1')
-
-# Using Llama 3 8B Instruct, as your prompts are already tuned for Llama
 BEDROCK_MODEL_ID = os.environ.get("BEDROCK_MODEL_ID", "meta.llama3-8b-instruct-v1:0")
 
 def query_bedrock(prompt, data_snippet, agent_name="Unknown Agent", file_origin="src/agents.py"):

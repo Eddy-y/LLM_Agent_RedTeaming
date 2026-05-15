@@ -1,41 +1,45 @@
-import sqlite3
+"""
+tools.py
+LangGraph tools for the Augmentation Agent.
+Migrated to query the Amazon RDS PostgreSQL database.
+"""
+
 from langchain_core.tools import tool
-from .config import get_settings
+import psycopg2.extras
+from .db import get_db_connection
 
 @tool
 def search_local_cti(package_name: str) -> str:
     """
-    Searches the local normalized SQLite database for Threat Intelligence 
+    Searches the cloud PostgreSQL database for Threat Intelligence 
     related to a specific software package.
     
     Args:
         package_name: The name of the software package (e.g., 'flask', 'django').
     """
-    settings = get_settings()
-    db_path = settings.db_path
-    
-    try:
-        conn = sqlite3.connect(str(db_path))
-        conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
+    conn = get_db_connection()
+    if not conn:
+        return "Error: Could not connect to the cloud database."
         
-        # Query the normalized table for anything related to the package
-        # We also use LIKE in case the package name is mentioned in CAPEC/MITRE summaries
+    try:
+        # Use RealDictCursor to access columns by name easily
+        cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        
+        # PostgreSQL uses %s for parameter binding and ILIKE for case-insensitive matching
         cursor.execute(
             """
             SELECT source, record_type, canonical_id, title, summary, severity 
             FROM normalized_items 
-            WHERE package_name = ? OR summary LIKE ? OR title LIKE ?
+            WHERE package_name = %s OR summary ILIKE %s OR title ILIKE %s
             LIMIT 50
             """, 
             (package_name, f"%{package_name}%", f"%{package_name}%")
         )
         
         rows = cursor.fetchall()
-        conn.close()
         
         if not rows:
-            return f"No local threat intelligence found for package: {package_name}."
+            return f"No threat intelligence found in the database for package: {package_name}."
             
         # Format the SQL rows into a readable string for the LLM
         formatted_results = f"--- CTI Database Results for '{package_name}' ---\n"
@@ -51,7 +55,7 @@ def search_local_cti(package_name: str) -> str:
         return formatted_results
         
     except Exception as e:
-        return f"Error accessing local CTI database: {str(e)}"
-
-# Update the exported tools list for LangGraph to use
-search_tools = [search_local_cti]
+        return f"Error accessing cloud CTI database: {str(e)}"
+    finally:
+        if conn:
+            conn.close()
