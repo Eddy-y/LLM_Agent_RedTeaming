@@ -1,60 +1,87 @@
-# Multi-Agent CTI Red Teaming & Augmentation Pipeline
+Here is the updated `README.md` rewritten to accurately reflect your new cloud-native AWS architecture, the decoupled FastAPI backend, and the Amazon Bedrock LLM integrations.
 
-This project implements a fully local, multi-agent Cyber Threat Intelligence (CTI) architecture. It uses Large Language Models (LLMs) to automatically ingest, normalize, and synthesize threat data from multiple disparate sources into actionable security reports.
+```markdown
+# Multi-Agent CTI Red Teaming & Augmentation Pipeline (AWS Native)
+
+This project implements a fully scalable, cloud-native multi-agent Cyber Threat Intelligence (CTI) architecture. It uses Amazon Bedrock Large Language Models (LLMs) to automatically ingest, normalize, and synthesize threat data from multiple disparate sources into actionable security reports for the Python ecosystem.
 
 ## 🏗️ System Architecture
 
-The system is divided into two distinct layers to ensure data integrity and clear separation of concerns:
+The system has been designed for high concurrency and decoupling, utilizing AWS managed services to prevent database locking and bottlenecking. It is divided into two distinct layers:
 
-### 1. The Ingestion & Normalization Layer (`src/pipeline.py` & `src/agents.py`)
-This backend pipeline runs asynchronously to build a unified Knowledge Graph. It features explicit LLM agents dedicated to specific tasks:
-* **Data Source Specialists (The Retrievers):** Dedicated agents (`run_nvd_agent`, `run_pypi_agent`, `run_github_agent`, `run_mitre_agent`, `run_capec_agent`) extract core security facts from raw, messy JSON APIs.
-* **Central Normalizer Agent:** A boss agent that evaluates the specialists' outputs and forces them into a strict, unified SQLite database schema (`normalized_items`). It actively rejects hallucinated or malformed data.
+### 1. The Ingestion & Normalization Layer (The "Night Shift")
+This backend asynchronous pipeline is driven by **Amazon SQS** and **AWS Lambda** to build a unified Knowledge Graph in an **Amazon RDS (PostgreSQL)** database.
+* **The Fetcher (`src/ingest_to_sqs.py`):** Extracts raw JSON from external APIs (NVD, PyPI, GitHub, MITRE, CAPEC) and pushes individual payloads to the `CTI-Ingestion-Queue`.
+* **The Workers (`src/lambda_worker.py`):** AWS Lambda functions trigger on SQS messages to process data concurrently using **Amazon Bedrock**.
+* **Specialist & Normalizer Agents (`src/agents.py`):** The Lambda worker invokes explicit LLM agents dedicated to specific tasks (e.g., NVD filtering via Ecosystem Anchoring) and passes the extracted facts to a Central Normalizer to ensure strict database schema adherence.
 
-### 2. The Augmentation & Interface Layer (`chat_UI.py` & `run_agents.py`)
-This frontend layer utilizes a **LangGraph** state machine to interact with the user and the database.
-* **Agent 1 (The Scout):** Evaluates the user's target package and executes a strict tool call (`search_local_cti`) to pull relevant vulnerabilities and attack patterns from the local database.
-* **Agent 2 (The Augmentation Agent):** The CTI Detective. It reads the isolated CVEs and connects them to broader MITRE/CAPEC attack patterns, writing "bridge statements" that explain *how* a specific software flaw enables a real-world attacker behavior.
+### 2. The Augmentation & Interface Layer (The "Day Shift")
+This frontend layer exposes the CTI Augmentation Agent as a decoupled REST API using **FastAPI** and **LangGraph**.
+* **The Interface (`api.py`):** A FastAPI application that receives requests to analyze specific Python packages.
+* **The Graph Engine (`graph_agents.py`):** A LangGraph state machine. It features a "Researcher Node" that performs heuristic SQL queries against the RDS database, and an "Analyzer Node" that uses Amazon Bedrock to synthesize the retrieved threat data into a structured mitigation report.
 
 ## 🚀 Prerequisites
 
-1. **Python 3.10+**
-2. **Ollama:** Installed locally for running the LLMs.
-3. **Local LLM:** Pull the required model via terminal:
-   ```bash
-   ollama pull llama3.2
-   ```
-4. **Dependencies:** Install the required Python packages:
-   ```bash
-   pip install langchain langchain-core langgraph streamlit requests python-dotenv pandas
-   ```
+1. **AWS Account & Credentials:** Configured locally via AWS CLI (`~/.aws/credentials`).
+2. **Amazon Bedrock Access:** You must request access to the Meta Llama 3 models (e.g., `meta.llama3-8b-instruct-v1:0`) in the AWS `us-east-1` region.
+3. **Python 3.10+**
+4. **Dependencies:** ```bash
+   pip install fastapi uvicorn boto3 psycopg2-binary langchain langchain-aws langgraph python-dotenv
+
+```
 
 ## ⚙️ How to Run the Project
 
-### Phase 1: Build the CTI Database (The Night Shift)
-First, run the backend pipeline to fetch, analyze, and normalize the threat data. This will create and populate the SQLite database.
+### Phase 1: Infrastructure & Database Provisioning
+
+First, deploy your AWS infrastructure (SQS queues, Lambda concurrency limits, RDS instances) using the provided SAM template.
 
 ```bash
-python3 -m src.pipeline
-```
-> **Note:** You will see the LLM actively processing MITRE/CAPEC corpora and package-specific data in the terminal, indicating successful database insertions with `+` symbols.
+sam deploy -t template.yaml --guided
 
-### Phase 2: Launch the Augmentation UI (The Day Shift)
-Once the database is built, launch the Streamlit interface to interact with the CTI Augmentation Agent.
+```
+
+Once the RDS instance is live, initialize the PostgreSQL schema and metrics tracking tables:
 
 ```bash
-python3 -m streamlit run chat_UI.py
+python3 init_cloud_db.py
+
 ```
-1. Open the provided localhost URL in your browser.
-2. Enter a target package (e.g., `flask`, `django`, `requests`).
-3. Click "Run Evaluation" to watch the LangGraph multi-agent system query the local DB and generate a synthesized threat report.
+
+### Phase 2: Build the CTI Database (Data Ingestion)
+
+Run the fetching script. Instead of processing locally, this will rapidly pull data and offload the actual LLM extraction to your highly concurrent AWS Lambda workers via SQS.
+
+```bash
+python3 -m src.ingest_to_sqs
+
+```
+
+> **Note:** Monitor your AWS CloudWatch logs for the Lambda function to see the Bedrock agents normalizing data and inserting it into RDS.
+
+### Phase 3: Launch the Augmentation API
+
+Spin up the FastAPI backend to interact with your synthesized threat intelligence.
+
+```bash
+uvicorn api:app --reload
+
+```
+
+1. Send a POST request to `http://localhost:8000/generate_report` with a payload like `{"package_name": "flask"}`.
+2. The LangGraph agent will execute, track research metrics (latency, correlations), log them to the RDS `evaluation_metrics` table, and return the final report.
 
 ## 📁 Key File Structure
 
-* `chat_UI.py` - The Streamlit frontend.
-* `run_agents.py` - The LangGraph state machine and Augmentation Agent logic.
-* `src/pipeline.py` - Orchestrates the ingestion of web APIs.
-* `src/agents.py` - Houses the explicit Specialist Agents and Central Normalizer.
-* `src/tools.py` - Contains the `search_local_cti` tool bridging the AI to the SQLite DB.
-* `src/fetchers.py` - Handles batch downloading of universal corpora (MITRE/CAPEC).
-* `data/` - Auto-generated folder containing the `pipeline.sqlite` database and raw JSON logs.
+* `api.py` - The FastAPI backend serving the LangGraph execution endpoint.
+* `graph_agents.py` - The LangGraph state machine (Researcher & Analyzer nodes).
+* `init_cloud_db.py` - Provisions the PostgreSQL schema on Amazon RDS.
+* `template.yaml` - AWS IaC template defining SQS, Lambda configurations, and RDS.
+* `src/ingest_to_sqs.py` - The orchestrator that fetches external data and pushes to SQS.
+* `src/lambda_worker.py` - The AWS Lambda entry point for processing SQS events.
+* `src/agents.py` - Houses the explicit LLM Specialist Agents used by Lambda via Bedrock.
+* `src/db.py` - Handles standard PostgreSQL connections, bulk inserts, and fetch logs.
+
+```
+
+```
