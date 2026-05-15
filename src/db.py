@@ -1,7 +1,7 @@
 """
 db.py
 
-SQLite database layer.
+database layer.
 """
 import os
 import json
