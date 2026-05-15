@@ -1,120 +1,124 @@
 """
 db.py
 
-SQLite database layer.
-
-We store two core things:
-
-1) fetch_log
-   One row per API call or fetch attempt
-   Includes where raw payload is stored on disk
-
-2) extracted_items
-   "Intermediate records" extracted from raw payloads
-   This is what your partner can later feed into the local LLM normalizer
-
-Why this design:
-  you can rerun normalization without re-fetching
-  you can debug by opening the raw files
-  you can track what you collected and when
+database layer.
 """
+import os
+import json
+import psycopg2
+from psycopg2.extras import execute_values
 
-from __future__ import annotations
-
-import sqlite3
-from pathlib import Path
-from typing import Any, Iterable
-
-
-def connect(db_path: Path) -> sqlite3.Connection:
-    db_path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(str(db_path))
-    conn.row_factory = sqlite3.Row
-    # Foreign keys on by default
-    conn.execute("PRAGMA foreign_keys = ON;")
-    return conn
-
-
-def init_db(conn: sqlite3.Connection) -> None:
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS fetch_log (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          run_id TEXT NOT NULL,
-          package_name TEXT NOT NULL,
-          source TEXT NOT NULL,
-          endpoint TEXT NOT NULL,
-          fetched_at_utc TEXT NOT NULL,
-          http_status INTEGER,
-          error TEXT,
-          raw_path TEXT NOT NULL
-        );
-        """
-    )
-
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS normalized_items (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          run_id TEXT NOT NULL,
-          package_name TEXT NOT NULL,
-          source TEXT NOT NULL,
-          record_type TEXT,
-          canonical_id TEXT UNIQUE,
-          title TEXT,
-          summary TEXT,
-          severity TEXT,
-          published_at TEXT,
-          references_json TEXT
-        );
-        """
-    )
-    conn.commit()
-
-def insert_normalized_batch(conn: sqlite3.Connection, run_id: str, package_name: str, rows: list[dict]):
-    for row in rows:
-        conn.execute(
-            """
-            INSERT OR IGNORE INTO normalized_items
-              (run_id, package_name, source, record_type, canonical_id, title, summary, severity, published_at, references_json)
-            VALUES
-              (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                run_id,
-                package_name,
-                row.get("source"),
-                row.get("record_type"),
-                row.get("canonical_id"),
-                row.get("title"),
-                row.get("summary"),
-                row.get("severity"),
-                row.get("published_at"),
-                str(row.get("references", []))
-            )
+def get_db_connection():
+    """Connects to the Amazon RDS PostgreSQL instance."""
+    try:
+        conn = psycopg2.connect(
+            host=os.environ.get("DB_HOST", "localhost"),
+            database=os.environ.get("DB_NAME", "postgres"),
+            user=os.environ.get("DB_USER", "postgres"),
+            password=os.environ.get("DB_PASSWORD", "local_dev_password")
         )
-    conn.commit()
+        return conn
+    except Exception as e:
+        print(f"[!] Database connection failed: {e}")
+        return None
 
-def insert_fetch_log(
-    conn: sqlite3.Connection,
-    *,
-    run_id: str,
-    package_name: str,
-    source: str,
-    endpoint: str,
-    fetched_at_utc: str,
-    http_status: int | None,
-    error: str | None,
-    raw_path: str,
-) -> int:
-    cur = conn.execute(
-        """
-        INSERT INTO fetch_log
-          (run_id, package_name, source, endpoint, fetched_at_utc, http_status, error, raw_path)
-        VALUES
-          (?, ?, ?, ?, ?, ?, ?, ?)
-        """,
-        (run_id, package_name, source, endpoint, fetched_at_utc, http_status, error, raw_path),
-    )
-    conn.commit()
-    return int(cur.lastrowid)
+def init_db(conn):
+    """Creates tables using PostgreSQL syntax."""
+    with conn.cursor() as cur:
+        # Create fetch_log with SERIAL auto-increment
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS fetch_log (
+              id SERIAL PRIMARY KEY,
+              run_id TEXT NOT NULL,
+              package_name TEXT NOT NULL,
+              source TEXT NOT NULL,
+              endpoint TEXT NOT NULL,
+              fetched_at_utc TEXT NOT NULL,
+              http_status INTEGER,
+              error TEXT,
+              raw_path TEXT NOT NULL
+            );
+        """)
+
+        # Create normalized_items with the UNIQUE constraint for upserts
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS normalized_items (
+              id SERIAL PRIMARY KEY,
+              run_id TEXT NOT NULL,
+              package_name TEXT NOT NULL,
+              source TEXT NOT NULL,
+              record_type TEXT,
+              canonical_id TEXT,
+              title TEXT,
+              summary TEXT,
+              severity TEXT,
+              published_at TEXT,
+              references_json TEXT,
+              UNIQUE(canonical_id, package_name)
+            );
+        """)
+        conn.commit()
+
+def insert_normalized_batch(conn, run_id, package_name, rows):
+    """High-speed batch insertion using ON CONFLICT DO UPDATE (Upsert)."""
+    if not rows:
+        return
+
+    # Skip inserting if the normalizer triggered the Escape Hatch (canonical_id is null)
+    valid_rows = [r for r in rows if r.get("canonical_id")]
+    if not valid_rows:
+        return
+
+    # PostgreSQL syntax for INSERT OR REPLACE
+    query = """
+        INSERT INTO normalized_items 
+          (run_id, package_name, source, record_type, canonical_id, title, summary, severity, published_at, references_json)
+        VALUES %s
+        ON CONFLICT (canonical_id, package_name) 
+        DO UPDATE SET 
+          run_id = EXCLUDED.run_id,
+          source = EXCLUDED.source,
+          record_type = EXCLUDED.record_type,
+          title = EXCLUDED.title,
+          summary = EXCLUDED.summary,
+          severity = EXCLUDED.severity,
+          published_at = EXCLUDED.published_at,
+          references_json = EXCLUDED.references_json
+    """
+    
+    values = [
+        (
+            run_id,
+            package_name,
+            row.get("source"),
+            row.get("record_type"),
+            row.get("canonical_id"),
+            row.get("title"),
+            row.get("summary"),
+            row.get("severity"),
+            row.get("published_at"),
+            json.dumps(row.get("references", [])) # Safely stringify the JSON
+        )
+        for row in valid_rows
+    ]
+
+    with conn.cursor() as cur:
+        execute_values(cur, query, values)
+        conn.commit()
+
+def insert_fetch_log(conn, run_id, package_name, source, endpoint, fetched_at_utc, http_status, error, raw_path):
+    """Inserts into fetch_log and returns the new ID using RETURNING."""
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO fetch_log
+              (run_id, package_name, source, endpoint, fetched_at_utc, http_status, error, raw_path)
+            VALUES
+              (%s, %s, %s, %s, %s, %s, %s, %s)
+            RETURNING id
+            """,
+            (run_id, package_name, source, endpoint, fetched_at_utc, http_status, error, raw_path)
+        )
+        inserted_id = cur.fetchone()[0]
+        conn.commit()
+        return inserted_id

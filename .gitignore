@@ -4,7 +4,7 @@ __pycache__/*
 data/
 venv*
 .venv*
-
+*__pycache__
 **/__pycache__/
 *.pyc
 *.pyo
@@ -12,3 +12,6 @@ venv*
 *.sqlite
 *.db
 .env
+data/agent_summary.csv
+data/evaluation_results.jsonl
+data/audit_logs.jsonl

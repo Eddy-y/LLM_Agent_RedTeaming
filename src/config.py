@@ -18,7 +18,8 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from pathlib import Path
-
+from dotenv import load_dotenv
+load_dotenv()
 
 # --- YOUR AI & CTI CONSTANTS ---
 OLLAMA_URL = "http://localhost:11434/api/chat"
@@ -38,10 +39,11 @@ class Settings:
     data_dir: Path = Path("data")
     db_path: Path = Path("data") / "pipeline.sqlite"
 
-    packages: tuple[str, ...] = ("django","flask")
+    packages: tuple[str, ...] = ("numpy",)
 
     github_token: str | None = _env("GITHUB_TOKEN")
     nvd_api_key: str | None = _env("NVD_API_KEY")
+    aws_profile_name: str | None = _env("AWS_PROFILE_NAME")
 
     http_timeout_seconds: int = 30
     user_agent: str = "cs-poc-data-pipeline/1.0"

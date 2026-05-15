@@ -1,0 +1,69 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Multi-Agent CTI Ingestion Pipeline with Financial Guardrails
+
+Resources:
+  # GUARDRAIL 1: Create the Dead-Letter Queue (DLQ) first
+  CtiFailedMessagesDLQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: CTI-Failed-Messages-DLQ
+
+  # Create the Main Queue and attach the DLQ
+  CtiIngestionQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: CTI-Ingestion-Queue
+      VisibilityTimeout: 300
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt CtiFailedMessagesDLQ.Arn
+        maxReceiveCount: 3  # If it fails 3 times, send it to the DLQ
+
+  # Create the Lambda Worker
+  CtiLambdaWorker:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: CTI-Lambda-Worker
+      CodeUri: . 
+      Handler: lambda_worker.lambda_handler
+      Runtime: python3.10
+      Timeout: 180 
+      MemorySize: 512
+      
+      # GUARDRAIL 2: Enforce the Concurrency Limit
+      ReservedConcurrentExecutions: 5 # AWS will never run more than 5 parallel workers
+      
+      Events:
+        MySQSEvent:
+          Type: SQS
+          Properties:
+            Queue: !GetAtt CtiIngestionQueue.Arn
+            BatchSize: 1 
+            
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action:
+                - bedrock:InvokeModel
+              Resource: "*"
+      
+  # Create the PostgreSQL Database
+  CtiDatabase:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      DBInstanceClass: db.t3.micro # Free-tier eligible
+      Engine: postgres
+      EngineVersion: "15.4"
+      AllocatedStorage: 20
+      MasterUsername: cti_admin
+      MasterUserPassword: "{{resolve:ssm-secure:CTI_DB_PASSWORD:1}}" # Securely fetches from AWS Secrets Manager
+      PubliclyAccessible: false
+
+  Environment:
+        Variables:
+          BEDROCK_MODEL_ID: "meta.llama3-8b-instruct-v1:0"
+          DB_HOST: !GetAtt CtiDatabase.Endpoint.Address
+          DB_USER: cti_admin
+          DB_NAME: postgres
+
+          
