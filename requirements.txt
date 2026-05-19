@@ -10,4 +10,5 @@ python-dotenv
 boto3
 langchain-aws
 psycopg2-binary
-fastapi uvicorn
+fastapi 
+uvicorn
