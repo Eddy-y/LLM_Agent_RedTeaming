@@ -12,3 +12,15 @@ langchain-aws
 psycopg2-binary
 fastapi 
 uvicorn
+fastapi>=0.111.0
+uvicorn>=0.30.1
+pydantic>=2.7.4
+langchain>=0.2.6
+langchain-aws>=0.1.7
+langgraph>=0.1.4
+psycopg2-binary>=2.9.9
+requests>=2.32.3
+tenacity>=8.3.0
+boto3>=1.34.131
+python-dotenv>=1.0.1
+sse-starlette>=2.1.2

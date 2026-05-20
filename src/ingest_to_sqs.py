@@ -20,9 +20,11 @@ from .sources.nvd import fetch_nvd_cves, NVD_SOURCE
 from .fetchers import fetch_mitre_objects, fetch_capec_objects
 from .state import load_state, advance_mitre_offset, advance_capec_offset
 
+import dotenv
+dotenv.load_dotenv()
 # Initialize SQS client
 sqs_client = boto3.client('sqs', region_name=os.environ.get('AWS_REGION', 'us-east-1'))
-SQS_QUEUE_URL = os.environ.get("SQS_QUEUE_URL", "https://sqs.us-east-1.amazonaws.com/123456789012/CTI-Ingestion-Queue")
+sqs_queue_url = os.environ.get('SQS_QUEUE_URL')
 
 def _raw_path_for(data_dir: Path, run_id: str, package: str, source: str) -> Path:
     pkg = safe_slug(package)
@@ -48,7 +50,7 @@ def push_to_sqs(run_id: str, package: str, source_name: str, raw_items: list):
         }
         
         sqs_client.send_message(
-            QueueUrl=SQS_QUEUE_URL,
+            QueueUrl=sqs_queue_url,
             MessageBody=json.dumps(message_body)
         )
 
@@ -94,8 +96,16 @@ def _run_for_package(run_id: str, package: str, settings) -> None:
     p_path = _raw_path_for(settings.data_dir, run_id, package, PYPI_SOURCE)
     if p_payload: 
         write_json(p_path, p_payload)
-        push_to_sqs(run_id, package, PYPI_SOURCE, [p_payload])
-
+        
+        # 🛡️ Architectural Fix: Clean the massive release history block to avoid SQS 413 Errors
+        cleaned_pypi_payload = {
+            "info": p_payload.get("info", {}),
+            "last_serial": p_payload.get("last_serial", 0)
+        }
+        
+        # Push only the trimmed, high-value metadata string to the SQS queue
+        push_to_sqs(run_id, package, PYPI_SOURCE, [cleaned_pypi_payload])
+        
     # Fetch GitHub Advisories
     if settings.github_token:
         gh_status, gh_payload, gh_err, gh_end = fetch_github_advisories(package, github_token=settings.github_token, timeout_seconds=settings.http_timeout_seconds, user_agent=settings.user_agent)
@@ -107,9 +117,23 @@ def _run_for_package(run_id: str, package: str, settings) -> None:
     # Fetch NVD CVEs
     nvd_status, nvd_payload, nvd_err, nvd_end = fetch_nvd_cves(package, api_key=settings.nvd_api_key, timeout_seconds=settings.http_timeout_seconds, user_agent=settings.user_agent)
     nvd_path = _raw_path_for(settings.data_dir, run_id, package, NVD_SOURCE)
+    
     if nvd_payload: 
         write_json(nvd_path, nvd_payload)
-        push_to_sqs(run_id, package, NVD_SOURCE, nvd_payload.get("vulnerabilities", []))
+        vulns = nvd_payload.get("vulnerabilities", [])
+        
+        if vulns:
+            # Append verified links directly into the data payload before queuing
+            for item in vulns:
+                cve_id = item.get("cve", {}).get("id", "")
+                item["verified_source_url"] = f"https://nvd.nist.gov/vuln/detail/{cve_id}" if cve_id else "https://nvd.nist.gov"
+                
+            print(f"    [SQS] Queuing {len(vulns)} items for nvd processing...")
+            push_to_sqs(run_id, package, NVD_SOURCE, vulns)
+        else:
+            print(f"    ℹ️ NVD returned 0 active CVE records for: {package}")
+    else:
+        print(f"    ⚠️ NVD Fetch failed for {package}. Status: {nvd_status} | Error: {nvd_err}")
 
 if __name__ == "__main__":
     run_id = run_pipeline()
