@@ -36,12 +36,12 @@ def lambda_handler(event, context):
                 specialist_output = run_nvd_agent([raw_data], package)
             elif source == "pypi":
                 specialist_output = run_pypi_agent([raw_data])
-            # elif source == "github":
-            #     specialist_output = run_github_agent([raw_data])
-            # elif source == "attack": # MITRE uses 'attack' as the source string
-            #     specialist_output = run_mitre_agent([raw_data])
-            # elif source == "capec":
-            #     specialist_output = run_capec_agent([raw_data])
+            elif source == "github":
+                specialist_output = run_github_agent([raw_data])
+            elif source == "attack": # MITRE uses 'attack' as the source string
+                specialist_output = run_mitre_agent([raw_data])
+            elif source == "capec":
+                specialist_output = run_capec_agent([raw_data])
             else:
                 print(f"[!] Unknown source received from SQS: {source}")
             
