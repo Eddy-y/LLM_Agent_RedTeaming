@@ -89,11 +89,18 @@ def build_red_team_graph(llm):
     def analyzer_node(state):
         t0 = time.time()
         analyzer_prompt = SystemMessage(content="""You are an expert Cyber Threat Intelligence Analyst. 
-        Evaluate the provided security records. Do NOT provide mitigation recommendations.
-        You must isolate and include the exact source reference URLs provided in the raw context. Do not invent links.
+        Evaluate the provided security records.
         
-        For every vulnerability or threat pattern you find, you MUST explicitly include its authentic source reference URL exactly as provided in the context data.
-        
+        Task:
+        1. You must isolate and include the exact source reference URLs provided in the raw context. Do not invent links.
+        2. For every vulnerability or threat pattern you find, you MUST explicitly include its authentic source reference URL exactly as provided in the context data.
+        3. Generate a concise answer grounded only by in the retrieved database context.
+            Focus on:
+            1. weakness being exploited
+            2. the goal of the attackers
+            3. the potential impact of the vulnerability
+            4. defense controls that could mitigate the threat 
+            
         Format your response beautifully using Markdown headings, bullet points, and bold text so it displays cleanly in the UI.""")
         
         # 🛡️ Safe Class-Based Filtering (Bypasses the NoneType property bug entirely)
@@ -104,6 +111,7 @@ def build_red_team_graph(llm):
         
         # Invoke your Amazon Bedrock instance
         raw_response = llm.invoke([analyzer_prompt] + clean_history).content
+        print(f"Agent LLM Raw Response: {raw_response}")
         db_context = "\n".join([m.content for m in clean_history if getattr(m, 'name', '') == "context_retrieval"])
         
         final_content = str(raw_response)
@@ -126,11 +134,11 @@ def build_red_team_graph(llm):
             print(f"⚠️ Background Auditor tracking failed: {auditor_err}")
             pass
 
-        guardrail_flag = "EXPLOIT" in final_content.upper() or "WEAPON" in final_content.upper()
+        # guardrail_flag = "EXPLOIT" in final_content.upper() or "WEAPON" in final_content.upper()
         return {
             "messages": [AIMessage(content=final_content)], 
             "analysis_time": time.time() - t0, 
-            "guardrail_triggered": guardrail_flag
+            "guardrail_triggered": False
         }
         
     def interception_node(state):
@@ -138,8 +146,8 @@ def build_red_team_graph(llm):
         safe_message = AIMessage(content="[GUARDRAIL TRIGGERED] Request blocked due to weaponization policy. Intelligence cannot be synthesized for exploitation.")
         return {"messages": [safe_message]}
 
-    def should_intercept(state):
-        return "interception_node" if state.get("guardrail_triggered") else END
+    # def should_intercept(state):
+    #     return "interception_node" if state.get("guardrail_triggered") else END
 
     workflow = StateGraph(AgentState)
     workflow.add_node("researcher", researcher_node)
@@ -148,7 +156,6 @@ def build_red_team_graph(llm):
     
     workflow.set_entry_point("researcher")
     workflow.add_edge("researcher", "analyzer")
-    workflow.add_conditional_edges("analyzer", should_intercept)
     return workflow.compile()
 
 def build_attacker_graph(llm, target_agent):
