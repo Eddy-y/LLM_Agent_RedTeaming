@@ -1,0 +1,75 @@
+import os
+import json
+import psycopg2
+from psycopg2.pool import ThreadedConnectionPool
+from psycopg2.extras import execute_values, RealDictCursor
+
+# Initialize a global connection pool
+try:
+    db_pool = ThreadedConnectionPool(
+        minconn=1,
+        maxconn=20,
+        host=os.environ.get("DB_HOST", "localhost"),
+        database=os.environ.get("DB_NAME", "postgres"),
+        user=os.environ.get("DB_USER", "postgres"),
+        password=os.environ.get("DB_PASSWORD", "local_dev_password")
+    )
+except Exception as e:
+    print(f"[!] Failed to initialize database connection pool: {e}")
+    db_pool = None
+
+def get_db_connection():
+    if db_pool:
+        try:
+            return db_pool.getconn()
+        except Exception as e:
+            print(f"[!] Pool exhausted or error: {e}")
+            return None
+    return None
+
+def release_db_connection(conn):
+    if db_pool and conn:
+        db_pool.putconn(conn)
+
+def insert_normalized_batch(conn, run_id, package_name, rows):
+    if not rows: return
+    valid_rows = [r for r in rows if r.get("canonical_id")]
+    if not valid_rows: return
+
+    query = """
+        INSERT INTO normalized_items 
+          (run_id, package_name, source, record_type, canonical_id, title, summary, severity, published_at, references_json)
+        VALUES %s
+        ON CONFLICT (canonical_id, package_name) 
+        DO UPDATE SET 
+          run_id = EXCLUDED.run_id,
+          source = EXCLUDED.source,
+          record_type = EXCLUDED.record_type,
+          title = EXCLUDED.title,
+          summary = EXCLUDED.summary,
+          severity = EXCLUDED.severity,
+          published_at = EXCLUDED.published_at,
+          references_json = EXCLUDED.references_json
+    """
+    values = [(
+        run_id, package_name, row.get("source"), row.get("record_type"),
+        row.get("canonical_id"), row.get("title"), row.get("summary"),
+        row.get("severity"), row.get("published_at"), json.dumps(row.get("references", []))
+    ) for row in valid_rows]
+
+    with conn.cursor() as cur:
+        execute_values(cur, query, values)
+        conn.commit()
+
+def log_audit_event(conn, log_entry: dict):
+    with conn.cursor() as cur:
+        cur.execute("""
+            INSERT INTO audit_logs (timestamp, file_origin, agent_name, hallucination_detected, hallucination_reason, url_validation_json)
+            VALUES (%s, %s, %s, %s, %s, %s)
+        """, (
+            log_entry["timestamp"], log_entry["file_origin"], log_entry["agent_name"],
+            log_entry["evaluation"]["hallucination_detected"],
+            log_entry["evaluation"]["hallucination_reason"],
+            json.dumps(log_entry["evaluation"]["url_validation"])
+        ))
+        conn.commit()
