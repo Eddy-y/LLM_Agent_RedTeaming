@@ -1,135 +1,69 @@
-import requests
+import os
 import json
-from .config import OLLAMA_URL, OLLAMA_MODEL
-from .verifier import run_verification_and_log
+import re
+import boto3
+from .config import get_settings
+from botocore.exceptions import ClientError
 
-def query_ollama(prompt, data_snippet, agent_name="Unknown Agent", file_origin="src/agents.py"):
-    """Sends the prompt and data to the local Ollama LLM."""
+aws_session = boto3.Session(profile_name=get_settings().aws_profile_name)
+bedrock_client = aws_session.client('bedrock-runtime', region_name='us-east-1')
+
+def extract_json_from_text(text: str) -> dict:
+    """Robustly extracts JSON from LLM output, ignoring conversational wrapper text."""
+    try:
+        # Match anything between curly braces
+        match = re.search(r'\{.*\}', text.replace('\n', ''), re.DOTALL)
+        if match:
+            return json.loads(match.group(0))
+        return {}
+    except json.JSONDecodeError:
+        return {}
+
+def query_bedrock(prompt, data_snippet, agent_name="Unknown Agent", file_origin="src/agents.py"):
     content = f"{prompt}\n\nDATA SNIPPET:\n{json.dumps(data_snippet)[:2000]}"
     payload = {
-        "model": OLLAMA_MODEL,
-        "messages": [{"role": "user", "content": content}],
-        "stream": False,
-        "format": "json"
+        "prompt": f"<|begin_of_text|><|start_header_id|>user<|end_header_id|>\n\n{content}<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n",
+        "max_gen_len": 512, "temperature": 0.1, "top_p": 0.9
     }
+    
     try:
-        resp = requests.post(OLLAMA_URL, json=payload, timeout=180)
-        resp.raise_for_status()
-        
-        raw_output = resp.json()["message"]["content"]
-        print(f"\n[LLM RAW OUTPUT]:\n{raw_output}\n")
-
-        run_verification_and_log(
-            agent_name=agent_name, 
-            file_origin=file_origin, 
-            context=data_snippet, 
-            response=raw_output
+        resp = bedrock_client.invoke_model(
+            modelId=get_settings().bedrock_model_id,
+            contentType="application/json",
+            accept="application/json",
+            body=json.dumps(payload)
         )
-        
-        return json.loads(raw_output)
-    except Exception as e:
-        print(f"      [!] Agent Error: {e}")
+        response_body = json.loads(resp.get('body').read())
+        return extract_json_from_text(response_body['generation'])
+    except ClientError as e:
+        print(f"      [!] AWS Bedrock Error: {e}")
         return {}
 
 def _execute_specialist(raw_items, prompt, source_name):
-    """Hidden helper function so we don't repeat the loop code 5 times."""
     candidates = []
-    print(f"    [{source_name.upper()} Agent] Analyzing {len(raw_items)} items...")
     for item in raw_items:
-        result = query_ollama(prompt, item, agent_name=f"{source_name.upper()} Specialist")
+        result = query_bedrock(prompt, item, agent_name=f"{source_name.upper()} Specialist")
         if result and result.get("id"):
             result["_origin_source"] = source_name
             candidates.append(result)
-            print("x", end="", flush=True)
-        else:
-            print(".", end="", flush=True)
-    print()
     return candidates
 
-
-# ==========================================
-# RETRIEVAL LAYER: ONE AGENT PER DATA SOURCE
-# ==========================================
-
 def run_pypi_agent(raw_items):
-    prompt = "You are a PyPI Analyst extracting package metadata. Output ONLY a valid JSON object with 'id' (package name) and 'desc' (summary). CRITICAL: Do NOT wrap the JSON in markdown code blocks or backticks. Output nothing but the raw JSON object. Return {} if invalid."
-    return _execute_specialist(raw_items, prompt, "pypi")
-
+    return _execute_specialist(raw_items, "Extract id and desc. Output JSON only.", "pypi")
 def run_github_agent(raw_items):
-    prompt = "You are a GitHub Security Analyst extracting vulnerability details. Output ONLY a valid JSON object with 'id' (GHSA ID), 'desc' (description), 'cvss' (severity). CRITICAL: Do NOT wrap the JSON in markdown code blocks or backticks. Output nothing but the raw JSON object. Return {} if invalid."
-    return _execute_specialist(raw_items, prompt, "github")
-
+    return _execute_specialist(raw_items, "Extract id, desc, cvss. Output JSON only.", "github")
 def run_nvd_agent(raw_items, package_name):
-    """
-    Agent specifically dedicated to NVD CVEs.
-    Now uses Ecosystem Anchoring to prevent cross-contamination.
-    """
-    prompt = f"""
-    You are an NVD Vulnerability Analyst for the PYTHON ecosystem.
-    TASK: Extract CVE details specifically for the Python package '{package_name}'.
-    
-    CRITICAL FILTER RULES (RQ2):
-    1. If the vulnerability does NOT affect Python or a Python web framework, it is a FALSE POSITIVE.
-    2. If the description mentions ANY of the following keywords, it is a FALSE POSITIVE: "Xen", "hypervisor", "Linux kernel", "C++ buffer overflow", "FLASK_AVC".
-    3. If it is a FALSE POSITIVE, you MUST return {{}} and nothing else.
-    
-    Output ONLY a valid JSON object with 'id' (CVE ID), 'desc' (description), 'cvss' (severity). 
-    Do NOT use markdown.
-    """
-    return _execute_specialist(raw_items, prompt, "nvd")
-
+    return _execute_specialist(raw_items, f"Extract CVE details for Python package '{package_name}'. Output JSON only.", "nvd")
 def run_mitre_agent(raw_items):
-    prompt = "You are a Threat Hunting Agent extracting technique details. Output ONLY a valid JSON object with 'id' (external ID), 'name' (technique name), 'details' (description). CRITICAL: Do NOT wrap the JSON in markdown code blocks or backticks. Output nothing but the raw JSON object. Return {} if not an attack-pattern."
-    return _execute_specialist(raw_items, prompt, "attack")
-
+    return _execute_specialist(raw_items, "Extract id, name, details. Output JSON only.", "attack")
 def run_capec_agent(raw_items):
-    prompt = "You are an AppSec Expert extracting exploit mechanics from CAPEC data. Output ONLY a valid JSON object with 'id' (CAPEC ID), 'name' (attack name), 'details' (description). CRITICAL: Do NOT wrap the JSON in markdown code blocks or backticks. Output nothing but the raw JSON object. Return {} if invalid."
-    return _execute_specialist(raw_items, prompt, "capec")
-
-
-# ==========================================
-# NORMALIZING LAYER: ONE CENTRAL AGENT
-# ==========================================
+    return _execute_specialist(raw_items, "Extract CAPEC details. Output JSON only.", "capec")
 
 def run_central_normalizer(specialist_outputs, source_name):
-    prompt = f"""
-    You are the {source_name.upper()} Data Normalizer.
-    Input: A semi-structured JSON object from a specialist agent.
-    Task: Map it strictly to the database schema.
-    
-    CRITICAL ID RULES (RQ2):
-    1. CANONICAL ID: Extract the standard industry identifier.
-       - MITRE: ID starts with 'T' (e.g., T1033). 
-       - CAPEC: ID starts with 'CAPEC-' (e.g., CAPEC-103).
-       - NVD: ID starts with 'CVE-'.
-       - NEVER use long UUIDs (e.g., attack-pattern--8782...).
-    
-    2. THE ESCAPE HATCH (CRITICAL): If the input ONLY contains a long UUID and no standard ID is available, you MUST set "canonical_id": null. Do NOT invent or guess an ID.
-
-    Target Schema:
-    {{
-      "source": "{source_name}",
-      "record_type": "cve, attack-pattern, package, or advisory",
-      "canonical_id": "Canonical ID ONLY (e.g. CVE-XXX, TXXX, CAPEC-XXX), or null",
-      "title": "Short technical title",
-      "summary": "1-sentence technical summary. DO NOT TRUNCATE KEYWORDS.",
-      "severity": "HIGH, MEDIUM, LOW, CRITICAL, or null",
-      "published_at": "ISO Date or null",
-      "references": []
-    }}
-    Output ONLY raw JSON. Do not include markdown code blocks.
-    """
-    
-    print(f"    [Normalizer Agent] Processing {len(specialist_outputs)} {source_name} items...")
+    prompt = f"""Normalize data. Target Schema: {{"source": "{source_name}", "record_type": "...", "canonical_id": "...", "title": "...", "summary": "...", "severity": "...", "published_at": "...", "references": []}} Output JSON only."""
     normalized_results = []
-    
     for item in specialist_outputs:
-        result = query_ollama(prompt, item, agent_name="Central Normalizer")
+        result = query_bedrock(prompt, item, agent_name="Central Normalizer")
         if result and result.get("canonical_id"):
             normalized_results.append(result)
-            print("+", end="", flush=True)
-        else:
-            print("-", end="", flush=True)
-    print()
     return normalized_results
-    
