@@ -18,3 +18,6 @@ samconfig.toml
 data/agent_summary.csv
 data/evaluation_results.jsonl
 data/audit_logs.jsonl
+# AWS SAM build artifacts
+.aws-sam/
+.sam-cfg.json
