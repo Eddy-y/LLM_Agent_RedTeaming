@@ -1,8 +1,27 @@
 import os
 import json
+import boto3
 import psycopg2
 from psycopg2.pool import ThreadedConnectionPool
 from psycopg2.extras import execute_values, RealDictCursor
+from dotenv import load_dotenv
+
+load_dotenv() 
+
+def get_secure_password():
+    """Fetches password from local .env or dynamically from AWS SSM."""
+    # 1. If running locally, grab it straight from the .env file
+    if "DB_PASSWORD" in os.environ:
+        return os.environ["DB_PASSWORD"]
+    
+    # 2. If running in AWS Lambda, fetch it securely via boto3
+    param_name = os.environ.get("DB_PASSWORD_PARAM")
+    if param_name:
+        ssm = boto3.client('ssm')
+        response = ssm.get_parameter(Name=param_name, WithDecryption=True)
+        return response['Parameter']['Value']
+        
+    return "local_dev_password" # Fallback
 
 # Initialize a global connection pool
 try:
@@ -12,7 +31,8 @@ try:
         host=os.environ.get("DB_HOST", "localhost"),
         database=os.environ.get("DB_NAME", "postgres"),
         user=os.environ.get("DB_USER", "postgres"),
-        password=os.environ.get("DB_PASSWORD", "local_dev_password")
+        password=get_secure_password(),
+        sslmode="require"
     )
 except Exception as e:
     print(f"[!] Failed to initialize database connection pool: {e}")
@@ -73,3 +93,4 @@ def log_audit_event(conn, log_entry: dict):
             json.dumps(log_entry["evaluation"]["url_validation"])
         ))
         conn.commit()
+

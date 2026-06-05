@@ -22,7 +22,7 @@ Resources:
     Properties:
       FunctionName: CTI-Lambda-Worker-SAM
       CodeUri: CtiLambdaWorker
-      Handler: lambda_worker.lambda_handler
+      Handler: src.lambda_worker.lambda_handler
       Runtime: python3.13
       Timeout: 180
       MemorySize: 512
@@ -33,8 +33,9 @@ Resources:
             Fn::GetAtt:
             - CtiDatabase
             - Endpoint.Address
-          DB_USER: cti_admin
           DB_NAME: postgres
+          DB_USER: cti_admin
+          DB_PASSWORD_PARAM: CTI_DB_PASSWORD
       Events:
         MySQSEvent:
           Type: SQS
@@ -50,6 +51,12 @@ Resources:
           Action:
           - bedrock:InvokeModel
           Resource: '*'
+      - Statement:
+        - Effect: Allow
+          Action:
+          - ssm:GetParameter
+          Resource:
+            Fn::Sub: arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/CTI_DB_PASSWORD
     Metadata:
       SamResourceId: CtiLambdaWorker
   CtiDatabase:
