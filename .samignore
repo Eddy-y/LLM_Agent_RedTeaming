@@ -1,0 +1,29 @@
+# Version control
+.git/
+.gitignore
+
+# AWS SAM files
+.aws-sam/
+.sam-cfg.json
+template.yaml
+events/
+
+# Local development environments
+venv/
+.venv/
+env/
+
+# Tests and coverage
+tests/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Documentation and design
+README.md
+docs/
+architecture-diagrams/
+
+# IDE files
+.vscode/
+.idea/

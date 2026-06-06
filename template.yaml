@@ -7,13 +7,13 @@ Resources:
   CtiFailedMessagesDLQ:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: CTI-Failed-Messages-DLQ
+      QueueName: CTI-Failed-Messages-DLQ-SAM
 
   # Create the Main Queue and attach the DLQ
   CtiIngestionQueue:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: CTI-Ingestion-Queue
+      QueueName: CTI-Ingestion-Queue-SAM
       VisibilityTimeout: 300
       RedrivePolicy:
         deadLetterTargetArn: !GetAtt CtiFailedMessagesDLQ.Arn
@@ -23,16 +23,24 @@ Resources:
   CtiLambdaWorker:
     Type: AWS::Serverless::Function
     Properties:
-      FunctionName: CTI-Lambda-Worker
+      FunctionName: CTI-Lambda-Worker-SAM
       CodeUri: . 
-      Handler: lambda_worker.lambda_handler
-      Runtime: python3.10
+      Handler: src.lambda_worker.lambda_handler
+      Runtime: python3.13
       Timeout: 180 
       MemorySize: 512
       
       # GUARDRAIL 2: Enforce the Concurrency Limit
-      ReservedConcurrentExecutions: 5 # AWS will never run more than 5 parallel workers
+      #ReservedConcurrentExecutions: 5 # AWS will never run more than 5 parallel workers
       
+      Environment:
+        Variables:
+          BEDROCK_MODEL_ID: "meta.llama3-8b-instruct-v1:0"
+          DB_HOST: !GetAtt CtiDatabase.Endpoint.Address
+          DB_NAME: "postgres"
+          DB_USER: "cti_admin"
+          DB_PASSWORD_PARAM: "CTI_DB_PASSWORD"
+
       Events:
         MySQSEvent:
           Type: SQS
@@ -46,6 +54,11 @@ Resources:
               Action:
                 - bedrock:InvokeModel
               Resource: "*"
+        - Statement:
+            - Effect: Allow
+              Action:
+                - ssm:GetParameter
+              Resource: !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/CTI_DB_PASSWORD"
       
   # Create the PostgreSQL Database
   CtiDatabase:
@@ -53,17 +66,11 @@ Resources:
     Properties:
       DBInstanceClass: db.t3.micro # Free-tier eligible
       Engine: postgres
-      EngineVersion: "15.4"
+      EngineVersion: "15"
       AllocatedStorage: 20
       MasterUsername: cti_admin
       MasterUserPassword: "{{resolve:ssm-secure:CTI_DB_PASSWORD:1}}" # Securely fetches from AWS Secrets Manager
       PubliclyAccessible: false
 
-  Environment:
-        Variables:
-          BEDROCK_MODEL_ID: "meta.llama3-8b-instruct-v1:0"
-          DB_HOST: !GetAtt CtiDatabase.Endpoint.Address
-          DB_USER: cti_admin
-          DB_NAME: postgres
 
           
