@@ -3,6 +3,16 @@ Transform: AWS::Serverless-2016-10-31
 Description: Multi-Agent CTI Ingestion Pipeline with Financial Guardrails
 
 Resources:
+  CtiDependenciesLayer:
+    Type: AWS::Serverless::LayerVersion
+    Properties:
+      LayerName: cti-dependencies-layer
+      Description: AI and Data processing libraries (Langchain, Pandas, etc.)
+      ContentUri: cti_dependencies/
+      CompatibleRuntimes:
+        - python3.13
+    Metadata:
+      BuildMethod: python3.13
   # GUARDRAIL 1: Create the Dead-Letter Queue (DLQ) first
   CtiFailedMessagesDLQ:
     Type: AWS::SQS::Queue
@@ -29,9 +39,13 @@ Resources:
       Runtime: python3.13
       Timeout: 180 
       MemorySize: 512
+      Layers:
+        - !Ref CtiDependenciesLayer
       
       # GUARDRAIL 2: Enforce the Concurrency Limit
       #ReservedConcurrentExecutions: 5 # AWS will never run more than 5 parallel workers
+      
+      Role: arn:aws:iam::893061520054:role/redteam-backend-CtiLambdaWorkerRole-NP6v7y5m6wEy
       
       Environment:
         Variables:
@@ -47,18 +61,6 @@ Resources:
           Properties:
             Queue: !GetAtt CtiIngestionQueue.Arn
             BatchSize: 1 
-            
-      Policies:
-        - Statement:
-            - Effect: Allow
-              Action:
-                - bedrock:InvokeModel
-              Resource: "*"
-        - Statement:
-            - Effect: Allow
-              Action:
-                - ssm:GetParameter
-              Resource: !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/CTI_DB_PASSWORD"
       
   # Create the PostgreSQL Database
   CtiDatabase:
