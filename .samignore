@@ -1,5 +1,7 @@
 # Version control
 .git/
+__pycache__/
+*.pyc
 .gitignore
 
 # AWS SAM files
@@ -7,6 +9,10 @@
 .sam-cfg.json
 template.yaml
 events/
+*.zip
+
+# Ignore local data backups
+data/
 
 # Local development environments
 venv/
