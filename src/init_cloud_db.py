@@ -27,7 +27,7 @@ def provision_database():
                   source TEXT NOT NULL, record_type TEXT NOT NULL, canonical_id TEXT,
                   title TEXT, summary TEXT, severity TEXT, published_at TEXT,
                   references_json TEXT, embedding vector(1536),
-                  UNIQUE(package_name, source, canonical_id)
+                  CONSTRAINT unique_canonical_package UNIQUE(canonical_id, package_name)
                 );
             """)
             cur.execute("""

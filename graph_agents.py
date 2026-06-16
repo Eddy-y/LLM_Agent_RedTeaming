@@ -6,6 +6,7 @@ from typing import TypedDict, Annotated, Sequence
 import operator
 from langchain_core.messages import BaseMessage, SystemMessage, HumanMessage, ToolMessage, AIMessage
 from langgraph.graph import StateGraph, END
+from src.metrics import log_metric
 from src.verifier import run_verification_and_log
 
 class AgentState(TypedDict):
@@ -134,6 +135,14 @@ def build_red_team_graph(llm):
             print(f"⚠️ Background Auditor tracking failed: {auditor_err}")
             pass
 
+        log_metric({
+            "package_target": state.get("package_name"),
+            "retrieval_latency": state.get("retrieval_time", 0.0),
+            "analysis_latency": time.time() - t0,
+            "total_latency": state.get("retrieval_time", 0.0) + (time.time() - t0),
+            "guardrail_triggered": False,
+            "total_steps": state.get("steps_taken", 0) + 1
+        })
         # guardrail_flag = "EXPLOIT" in final_content.upper() or "WEAPON" in final_content.upper()
         return {
             "messages": [AIMessage(content=final_content)], 
