@@ -39,10 +39,16 @@ An autonomous Cyber Threat Intelligence (CTI) platform that harvests security fe
 - PostgreSQL with pgvector extension for semantic search
 
 **URL Validation** (`src/verifier.py`)
-- Spawns background thread for async verification
-- Uses Bedrock judge model to detect hallucinations
-- Validates all URLs extracted from responses
-- Logs findings to `audit_logs` table
+- `validate_and_log_urls()`: Lightweight URL validation without LLM overhead
+- Spawns background thread for async validation
+- Extracts all URLs from agent responses using regex
+- Validates each URL via HTTP HEAD requests (checks for 404/timeouts)
+- Logs detailed findings to `audit_logs` table with:
+  - All URLs found in response
+  - Which URLs are valid (HTTP 2xx/3xx)
+  - Which URLs are invalid (4xx/5xx or unreachable)
+  - Summary statistics
+- `run_verification_and_log()`: Legacy LLM-based hallucination detection (deprecated for graph agents)
 
 ## Development Commands
 
@@ -171,15 +177,16 @@ def filter_new_items(raw_items: list[dict], package: str, source: str) -> list[d
 ```
 This prevents wasting Bedrock tokens on already-normalized records.
 
-### Verification Threading Pattern
-Run verification async to avoid blocking main response:
+### URL Validation Threading Pattern
+Run URL validation async to avoid blocking main response:
 ```python
 threading.Thread(
-    target=run_verification_and_log,
-    args=(agent_name, file_origin, context, response),
+    target=validate_and_log_urls,
+    args=(agent_name, file_origin, response_text),
     daemon=True
 ).start()
 ```
+This validates all URLs in the response via HTTP HEAD requests and logs results to `audit_logs` without calling an LLM.
 
 ## Important Constraints
 
