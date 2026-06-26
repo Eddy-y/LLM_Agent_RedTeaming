@@ -6,7 +6,8 @@ from typing import TypedDict, Annotated, Sequence
 import operator
 from langchain_core.messages import BaseMessage, SystemMessage, HumanMessage, ToolMessage, AIMessage
 from langgraph.graph import StateGraph, END
-from src.verifier import run_verification_and_log
+from src.metrics import log_metric
+from src.verifier import validate_and_log_urls
 
 class AgentState(TypedDict):
     messages: Annotated[Sequence[BaseMessage], operator.add]
@@ -115,25 +116,27 @@ def build_red_team_graph(llm):
         db_context = "\n".join([m.content for m in clean_history if getattr(m, 'name', '') == "context_retrieval"])
         
         final_content = str(raw_response)
-        extracted_url = "https://nvd.nist.gov" # Safe, valid absolute URL domain fallback
-        
-       # Scan the database context to extract the primary true link for Eddy's auditor log
-        url_match = re.search(r'(https?://[^\s\)\],]+)', db_context)
-        if url_match:
-            extracted_url = url_match.group(1).strip()
 
-        # Execute Eddy's URL Validator & Hallucination Auditor safely
+        # Execute URL validation and logging (no LLM hallucination check)
         try:
-            print(f"🔍 Routing to Eddy's Auditor with Verified Source Target: {extracted_url}")
+            print(f"🔍 Running URL validation on analyzer response")
             threading.Thread(
-                target=run_verification_and_log, 
-                args=("Analyzer Agent", "graph_agents.py", db_context, f"Report summary verification block. Source URL: {extracted_url}"), 
+                target=validate_and_log_urls,
+                args=("Analyzer Agent", "graph_agents.py", final_content),
                 daemon=True
             ).start()
-        except Exception as auditor_err:
-            print(f"⚠️ Background Auditor tracking failed: {auditor_err}")
+        except Exception as validation_err:
+            print(f"⚠️ Background URL validation failed: {validation_err}")
             pass
 
+        log_metric({
+            "package_target": state.get("package_name"),
+            "retrieval_latency": state.get("retrieval_time", 0.0),
+            "analysis_latency": time.time() - t0,
+            "total_latency": state.get("retrieval_time", 0.0) + (time.time() - t0),
+            "guardrail_triggered": False,
+            "total_steps": state.get("steps_taken", 0) + 1
+        })
         # guardrail_flag = "EXPLOIT" in final_content.upper() or "WEAPON" in final_content.upper()
         return {
             "messages": [AIMessage(content=final_content)], 

@@ -64,7 +64,7 @@ Spin up your local Uvicorn wrapper engine to coordinate incoming frontend web st
 
 ### Step 4: Running the Streamlit Dashboard Dashboard Interface
 Open a secondary terminal window and launch your graphical control cockpit interface panel:
-`streamlit run app.py`
+`streamlit run app_dashboard.py`
 
 ## 🔬 Core UI Playbook
 

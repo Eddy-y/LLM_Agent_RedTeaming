@@ -72,7 +72,7 @@ Resources:
       AllocatedStorage: 20
       MasterUsername: cti_admin
       MasterUserPassword: "{{resolve:ssm-secure:CTI_DB_PASSWORD:1}}" # Securely fetches from AWS Secrets Manager
-      PubliclyAccessible: false
+      PubliclyAccessible: true
 
 
           
