@@ -3,9 +3,9 @@ import os
 import boto3
 import re
 from datetime import datetime
-from .url_validator import validate_text_urls, extract_urls
-from .config import get_settings
-from .db import get_db_connection, release_db_connection, log_audit_event
+from url_validator import validate_text_urls, extract_urls
+from config import get_settings
+from db import get_db_connection, release_db_connection, log_audit_event
 
 def run_verification_and_log(agent_name: str, file_origin: str, context: str, response: str):
     url_insights = validate_text_urls(response)

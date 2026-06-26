@@ -1,9 +1,9 @@
 import json
-from src.agents import (
+from agents import (
     run_pypi_agent, run_github_agent, run_nvd_agent, 
     run_mitre_agent, run_capec_agent, run_central_normalizer
 )
-from src.db import get_db_connection, release_db_connection, insert_normalized_batch
+from db import get_db_connection, release_db_connection, insert_normalized_batch
 
 def lambda_handler(event, context):
     rds_conn = get_db_connection()

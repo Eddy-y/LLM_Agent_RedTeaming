@@ -4,7 +4,7 @@ Tracks system performance and safety guardrail metrics for RQ1 - RQ4.
 Migrated to Amazon RDS (PostgreSQL) for centralized research data collection.
 """
 from datetime import datetime
-from .db import get_db_connection
+from db import get_db_connection
 
 def _init_metrics_table(conn):
     """Ensures the evaluation_metrics table exists in RDS."""

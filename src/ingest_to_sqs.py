@@ -10,16 +10,16 @@ import os
 from pathlib import Path
 from dotenv import load_dotenv
 
-from .config import get_settings
-from .utils import ensure_dir, safe_slug, utc_now_iso, write_json
+from config import get_settings
+from utils import ensure_dir, safe_slug, utc_now_iso, write_json
 
-from .sources.pypi import fetch_pypi_json, PYPI_SOURCE
-from .sources.github_advisories import fetch_github_advisories, GITHUB_SOURCE
-from .sources.nvd import fetch_nvd_cves, NVD_SOURCE
+from sources.pypi import fetch_pypi_json, PYPI_SOURCE
+from sources.github_advisories import fetch_github_advisories, GITHUB_SOURCE
+from sources.nvd import fetch_nvd_cves, NVD_SOURCE
 
-from .fetchers import fetch_mitre_objects, fetch_capec_objects
-from .state import load_state, advance_mitre_offset, advance_capec_offset
-from .db import get_db_connection, release_db_connection
+from fetchers import fetch_mitre_objects, fetch_capec_objects
+from state import load_state, advance_mitre_offset, advance_capec_offset
+from db import get_db_connection, release_db_connection
 
 import dotenv
 dotenv.load_dotenv()
@@ -70,11 +70,21 @@ def extract_id_from_raw(raw_item: dict, source: str) -> str | None:
         # PyPI doesn't have structured IDs in the raw payload, defer to LLM
         return None
     elif source == "attack":
-        # MITRE ATT&CK structure: {"id": "attack-pattern--...", ...}
-        return raw_item.get("id")
+        # MITRE ATT&CK: Extract external_id from external_references (e.g., "T1055.011")
+        # Agents normalize to this human-readable format, not the STIX ID
+        refs = raw_item.get("external_references", [])
+        for ref in refs:
+            if ref.get("source_name") == "mitre-attack" and ref.get("external_id"):
+                return ref["external_id"]
+        return None
     elif source == "capec":
-        # CAPEC structure: {"id": "attack-pattern--...", ...} or similar
-        return raw_item.get("id")
+        # CAPEC: Extract CAPEC-### ID from external_references
+        # Agents normalize to this format (e.g., "CAPEC-1")
+        refs = raw_item.get("external_references", [])
+        for ref in refs:
+            if ref.get("source_name") == "capec" and ref.get("external_id"):
+                return ref["external_id"]
+        return None
     return None
 
 def filter_new_items(raw_items: list[dict], package: str, source: str) -> list[dict]:

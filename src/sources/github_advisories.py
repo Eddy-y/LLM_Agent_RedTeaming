@@ -15,7 +15,7 @@ from typing import Any
 import requests
 from tenacity import retry, wait_exponential, stop_after_attempt
 
-from ..utils import utc_now_iso
+from utils import utc_now_iso
 
 
 GITHUB_SOURCE = "github_advisories"

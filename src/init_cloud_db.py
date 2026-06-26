@@ -1,5 +1,5 @@
 from dotenv import load_dotenv
-from src.db import get_db_connection, release_db_connection
+from db import get_db_connection, release_db_connection
 
 def provision_database():
     load_dotenv()

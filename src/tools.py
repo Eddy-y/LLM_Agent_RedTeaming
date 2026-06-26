@@ -6,7 +6,7 @@ Migrated to query the Amazon RDS PostgreSQL database.
 
 from langchain_core.tools import tool
 import psycopg2.extras
-from .db import get_db_connection
+from db import get_db_connection
 
 @tool
 def search_local_cti(package_name: str) -> str:
