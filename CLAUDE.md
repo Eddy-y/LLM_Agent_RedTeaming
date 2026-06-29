@@ -50,6 +50,18 @@ An autonomous Cyber Threat Intelligence (CTI) platform that harvests security fe
   - Summary statistics
 - `run_verification_and_log()`: Legacy LLM-based hallucination detection (deprecated for graph agents)
 
+**Summary Verification** (`src/summary_verifier.py`)
+- Validates LLM-generated summaries against original source content without using LLMs
+- Three-stage pipeline: scrape → extract keywords → calculate similarity
+- **NVDScraper**: Web scraper with 6-second rate limiting, retry logic, and fallback CSS selectors
+- **KeywordExtractor**: TF-IDF-based keyword extraction with security-domain stopwords
+- **SimilarityAnalyzer**: Hybrid scoring using Jaccard coefficient (0.6 weight) + fuzzy token matching (0.4 weight)
+- **VerificationOrchestrator**: Coordinates workflow, logs results to `verification_logs` table
+- Verdict thresholds: MATCH (≥0.4 combined score), MISMATCH (<0.4), UNVERIFIABLE (scrape failed)
+- Short summary adjustment: Lower threshold to 0.3 for summaries <20 characters
+- Zero cost per verification (vs. $0.001 for LLM-based verification)
+- Performance: ~7-8 seconds per record including mandatory NVD rate limit
+
 ## Development Commands
 
 ### Environment Setup
@@ -106,6 +118,15 @@ python -m uvicorn api:app --reload
 streamlit run app_dashboard.py
 ```
 
+**Step 5: Verify summaries (optional)**
+```bash
+# Verify 50 records from NVD
+python -m src.summary_verifier --batch-size 50 --source nvd
+
+# Verbose mode with keyword/score output
+python -m src.summary_verifier --batch-size 10 --verbose
+```
+
 ### Testing
 
 ```bash
@@ -117,6 +138,9 @@ python test/test_worker.py
 
 # Generate phase 1 benchmarks
 python test/generate_phase1_benchmarks.py
+
+# Test summary verification components
+python -m test.test_summary_verifier
 ```
 
 ### AWS SAM Deployment
@@ -188,6 +212,30 @@ threading.Thread(
 ```
 This validates all URLs in the response via HTTP HEAD requests and logs results to `audit_logs` without calling an LLM.
 
+### Summary Verification Pattern
+Validate LLM-generated summaries against source content without LLM overhead:
+```python
+# 1. Scrape source description with rate limiting
+scraper = NVDScraper()
+result = scraper.scrape_description(nvd_url)  # 6-second delay built-in
+
+# 2. Extract keywords using TF-IDF
+extractor = KeywordExtractor(max_features=15)
+keywords_llm = extractor.extract_keywords(llm_summary, max_keywords=10)
+keywords_source = extractor.extract_keywords(scraped_content, max_keywords=15)
+
+# 3. Calculate hybrid similarity
+analyzer = SimilarityAnalyzer()
+jaccard = analyzer.calculate_jaccard(keywords_llm, keywords_source)
+fuzzy = analyzer.calculate_fuzzy(llm_summary, scraped_content)
+combined = analyzer.combined_score(jaccard, fuzzy)  # 0.6*jaccard + 0.4*fuzzy
+
+# 4. Determine verdict with adaptive threshold
+is_short = len(llm_summary) < 20
+verdict = analyzer.get_verdict(combined, is_short=is_short)  # MATCH/MISMATCH/UNVERIFIABLE
+```
+This approach eliminates LLM cost while providing deterministic, reproducible verification.
+
 ## Important Constraints
 
 **Rate Limits:**
@@ -234,6 +282,15 @@ This validates all URLs in the response via HTTP HEAD requests and logs results 
 - Performance tracking: retrieval_latency_sec, analysis_latency_sec, total_latency_sec
 - Guardrail trigger counts
 - Per-package granularity
+
+**verification_logs**:
+- Links to `normalized_items` via `normalized_item_id`
+- Stores scraped source content and HTTP status
+- Keywords extracted from both LLM summary and source (JSON arrays)
+- Similarity scores: jaccard_score, fuzzy_score, combined_score
+- Verdict: 'MATCH', 'MISMATCH', or 'UNVERIFIABLE'
+- Scrape status tracking: 'success', 'not_found', 'blocked', 'timeout', 'error'
+- Populated by `summary_verifier.py` module
 
 ## AWS Profile Configuration
 
