@@ -52,14 +52,16 @@ An autonomous Cyber Threat Intelligence (CTI) platform that harvests security fe
 **Summary Verification** (`src/validators/summary_verifier.py`)
 - Validates LLM-generated summaries against original source content without using LLMs
 - Three-stage pipeline: scrape → extract keywords → calculate similarity
-- **NVDScraper**: Web scraper with 6-second rate limiting, retry logic, and fallback CSS selectors
+- **Scrapers**:
+  - **NVDScraper**: Web scraper with 6-second rate limiting, retry logic, and fallback CSS selectors for NVD CVE pages
+  - **GitHubAdvisoryScraper**: Web scraper with 2-second rate limiting for GitHub Security Advisory pages (GHSA-*)
 - **KeywordExtractor**: TF-IDF-based keyword extraction with security-domain stopwords
 - **SimilarityAnalyzer**: Hybrid scoring using Jaccard coefficient (0.6 weight) + fuzzy token matching (0.4 weight)
-- **VerificationOrchestrator**: Coordinates workflow, logs results to `summary_verification_logs` table
+- **VerificationOrchestrator**: Coordinates workflow, automatically selects appropriate scraper based on source, logs results to `summary_verification_logs` table
 - Verdict thresholds: MATCH (≥0.4 combined score), MISMATCH (<0.4), UNVERIFIABLE (scrape failed)
 - Short summary adjustment: Lower threshold to 0.3 for summaries <20 characters
 - Zero cost per verification (vs. $0.001 for LLM-based verification)
-- Performance: ~7-8 seconds per record including mandatory NVD rate limit
+- Performance: ~7-8 seconds per NVD record (includes mandatory rate limit), ~3-4 seconds per GitHub Advisory
 
 ## Development Commands
 
@@ -125,8 +127,11 @@ streamlit run app_dashboard.py
 # Verify 50 records from NVD
 python -m src.validators.summary_verifier --batch-size 50 --source nvd
 
+# Verify GitHub Advisories
+python -m src.validators.summary_verifier --batch-size 50 --source github_advisories
+
 # Verbose mode with keyword/score output
-python -m src.validators.summary_verifier --batch-size 10 --verbose
+python -m src.validators.summary_verifier --batch-size 10 --verbose --source github_advisories
 ```
 
 ### Testing
@@ -217,26 +222,31 @@ This validates all URLs in the response via HTTP HEAD requests and logs results 
 ### Summary Verification Pattern
 Validate LLM-generated summaries against source content without LLM overhead:
 ```python
-# 1. Scrape source description with rate limiting
-scraper = NVDScraper()
-result = scraper.scrape_description(nvd_url)  # 6-second delay built-in
+# 1. Initialize appropriate scraper based on source
+if source == 'github_advisories':
+    scraper = GitHubAdvisoryScraper()  # 2-second rate limit
+else:
+    scraper = NVDScraper()  # 6-second rate limit
 
-# 2. Extract keywords using TF-IDF
+# 2. Scrape source description
+result = scraper.scrape_description(source_url)
+
+# 3. Extract keywords using TF-IDF
 extractor = KeywordExtractor(max_features=15)
 keywords_llm = extractor.extract_keywords(llm_summary, max_keywords=10)
 keywords_source = extractor.extract_keywords(scraped_content, max_keywords=15)
 
-# 3. Calculate hybrid similarity
+# 4. Calculate hybrid similarity
 analyzer = SimilarityAnalyzer()
 jaccard = analyzer.calculate_jaccard(keywords_llm, keywords_source)
 fuzzy = analyzer.calculate_fuzzy(llm_summary, scraped_content)
 combined = analyzer.combined_score(jaccard, fuzzy)  # 0.6*jaccard + 0.4*fuzzy
 
-# 4. Determine verdict with adaptive threshold
+# 5. Determine verdict with adaptive threshold
 is_short = len(llm_summary) < 20
 verdict = analyzer.get_verdict(combined, is_short=is_short)  # MATCH/MISMATCH/UNVERIFIABLE
 ```
-This approach eliminates LLM cost while providing deterministic, reproducible verification.
+This approach eliminates LLM cost while providing deterministic, reproducible verification. Supports both NVD CVEs and GitHub Security Advisories.
 
 ## Important Constraints
 

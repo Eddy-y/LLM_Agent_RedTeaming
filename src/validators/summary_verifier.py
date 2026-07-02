@@ -2,12 +2,12 @@
 Summary Verification Script
 
 Validates LLM-generated summaries against original source content by:
-1. Scraping vulnerability descriptions from NVD web pages
+1. Scraping vulnerability descriptions from NVD and GitHub Advisory web pages
 2. Extracting keywords using TF-IDF
 3. Calculating hybrid Jaccard + fuzzy similarity scores
 4. Logging results to summary_verification_logs table
 
-MVP Scope: NVD CVE descriptions only
+Supported Sources: NVD CVE descriptions, GitHub Security Advisories
 
 The trustability of each LLM-generated summary is calculated using a hybrid, weighted scoring system composed of two distinct metrics:
 1. A Jaccard Similarity Score (weighted at 60%), which measures the exact overlap between domain-specific, TF-IDF-extracted keywords from both the LLM summary and the scraped NVD source text.
@@ -21,8 +21,7 @@ import re
 import time
 import argparse
 import logging
-from datetime import datetime
-from typing import Dict, List, Optional, Set
+from typing import Dict, List, Optional
 
 import requests
 from bs4 import BeautifulSoup
@@ -30,7 +29,6 @@ from fuzzywuzzy import fuzz
 from sklearn.feature_extraction.text import TfidfVectorizer
 from tenacity import retry, wait_exponential, stop_after_attempt
 
-from src.config import get_settings
 from src.db import (
     get_db_connection,
     release_db_connection,
@@ -148,6 +146,157 @@ class NVDScraper:
                 }
 
             logger.info(f"Successfully scraped: {url} ({len(content)} chars)")
+            return {
+                'status': 'success',
+                'content': content,
+                'http_status': http_status,
+                'error': None
+            }
+
+        except requests.exceptions.Timeout:
+            logger.error(f"Timeout scraping: {url}")
+            return {
+                'status': 'timeout',
+                'content': None,
+                'http_status': None,
+                'error': f'Request timeout after {self.TIMEOUT}s'
+            }
+
+        except requests.exceptions.SSLError as e:
+            logger.error(f"SSL error scraping {url}: {e}")
+            return {
+                'status': 'error',
+                'content': None,
+                'http_status': None,
+                'error': f'SSL certificate error: {str(e)}'
+            }
+
+        except Exception as e:
+            logger.error(f"Unexpected error scraping {url}: {e}")
+            return {
+                'status': 'error',
+                'content': None,
+                'http_status': None,
+                'error': f'Unexpected error: {str(e)}'
+            }
+
+
+class GitHubAdvisoryScraper:
+    """
+    Web scraper for GitHub Security Advisory descriptions with rate limiting.
+    """
+
+    RATE_LIMIT_DELAY = 2  # GitHub is more permissive than NVD
+    MAX_RETRIES = 3
+    TIMEOUT = 15
+
+    USER_AGENT = "cs-poc-data-pipeline/1.0 (Research; verification-module)"
+
+    HEADERS = {
+        'User-Agent': USER_AGENT,
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'DNT': '1',
+        'Connection': 'keep-alive',
+        'Upgrade-Insecure-Requests': '1'
+    }
+
+    # Fallback selectors for GitHub Advisory pages
+    SELECTORS = [
+        {'class': 'markdown-body'},           # Primary: main content area
+        {'data-view-component': 'true'},      # Fallback 1: component wrapper
+        {'class': 'vulnerability-description'} # Fallback 2: specific description class
+    ]
+
+    @retry(wait=wait_exponential(multiplier=2, min=4, max=16), stop=stop_after_attempt(3))
+    def scrape_description(self, url: str) -> Dict[str, any]:
+        """
+        Scrape vulnerability description from GitHub Advisory URL.
+
+        Returns:
+            {
+                'status': 'success' | 'not_found' | 'blocked' | 'timeout' | 'error',
+                'content': str | None,
+                'http_status': int | None,
+                'error': str | None
+            }
+        """
+        # Rate limiting
+        time.sleep(self.RATE_LIMIT_DELAY)
+
+        try:
+            response = requests.get(url, headers=self.HEADERS, timeout=self.TIMEOUT)
+            http_status = response.status_code
+
+            # Handle specific error codes
+            if http_status == 404:
+                logger.warning(f"URL not found (404): {url}")
+                return {
+                    'status': 'not_found',
+                    'content': None,
+                    'http_status': 404,
+                    'error': 'Advisory not found (dead link)'
+                }
+
+            if http_status == 403:
+                logger.warning(f"Access blocked (403): {url}")
+                return {
+                    'status': 'blocked',
+                    'content': None,
+                    'http_status': 403,
+                    'error': 'GitHub rate limit or WAF block detected'
+                }
+
+            response.raise_for_status()
+
+            # Parse HTML
+            soup = BeautifulSoup(response.content, 'lxml')
+
+            # GitHub Advisory pages have a structured layout
+            # Look for the description section (typically in markdown-body class)
+            desc_elem = None
+
+            # Try to find the description in the markdown body
+            markdown_sections = soup.find_all('div', {'class': 'markdown-body'})
+
+            if markdown_sections:
+                # The first significant paragraph usually contains the description
+                for section in markdown_sections:
+                    paragraphs = section.find_all('p')
+                    if paragraphs:
+                        # Combine first few paragraphs for full description
+                        desc_elem = paragraphs[0]
+                        break
+
+            # Fallback to other selectors
+            if not desc_elem:
+                for selector in self.SELECTORS:
+                    desc_elem = soup.find('p', selector)
+                    if desc_elem:
+                        break
+
+            if not desc_elem:
+                logger.error(f"Description element not found: {url}")
+                html_snippet = str(soup)[:500] if soup else "No HTML"
+                return {
+                    'status': 'not_found',
+                    'content': None,
+                    'http_status': http_status,
+                    'error': f'Description element missing. HTML snippet: {html_snippet}'
+                }
+
+            content = desc_elem.text.strip()
+
+            if not content:
+                logger.warning(f"Empty description content: {url}")
+                return {
+                    'status': 'not_found',
+                    'content': None,
+                    'http_status': http_status,
+                    'error': 'Description element found but empty'
+                }
+
+            logger.info(f"Successfully scraped GitHub Advisory: {url} ({len(content)} chars)")
             return {
                 'status': 'success',
                 'content': content,
@@ -337,7 +486,12 @@ class VerificationOrchestrator:
         self.batch_size = batch_size
         self.verbose = verbose
 
-        self.scraper = NVDScraper()
+        # Initialize appropriate scraper based on source
+        if source == 'github_advisories':
+            self.scraper = GitHubAdvisoryScraper()
+        else:  # Default to NVD
+            self.scraper = NVDScraper()
+
         self.keyword_extractor = KeywordExtractor(max_features=15)
         self.similarity_analyzer = SimilarityAnalyzer()
 
@@ -385,6 +539,51 @@ class VerificationOrchestrator:
             logger.error(f"Malformed JSON in references_json for {canonical_id}: {e}")
             return None
 
+    def extract_github_advisory_url(self, references_json: str, canonical_id: str) -> Optional[str]:
+        """
+        Extract GitHub Advisory URL from references_json field.
+        Falls back to constructing from canonical_id if not found.
+
+        GitHub Advisory URLs follow pattern: https://github.com/advisories/GHSA-xxxx-xxxx-xxxx
+        """
+        if not references_json:
+            logger.warning(f"No references_json for {canonical_id}")
+            # Try constructing from canonical_id directly
+            if canonical_id and canonical_id.startswith('GHSA-'):
+                return f"https://github.com/advisories/{canonical_id}"
+            return None
+
+        try:
+            urls = json.loads(references_json)
+
+            if not urls or not isinstance(urls, list):
+                logger.warning(f"Empty or invalid references_json for {canonical_id}")
+                # Fallback: construct from canonical_id
+                if canonical_id and canonical_id.startswith('GHSA-'):
+                    constructed_url = f"https://github.com/advisories/{canonical_id}"
+                    logger.info(f"Constructed URL for {canonical_id}: {constructed_url}")
+                    return constructed_url
+                return None
+
+            # Find GitHub Advisory URL
+            github_advisory_pattern = re.compile(r'^https://github\.com/advisories/GHSA-')
+            for url in urls:
+                if github_advisory_pattern.match(url):
+                    return url
+
+            # Fallback: construct URL from canonical_id
+            if canonical_id and canonical_id.startswith('GHSA-'):
+                constructed_url = f"https://github.com/advisories/{canonical_id}"
+                logger.info(f"Constructed URL for {canonical_id}: {constructed_url}")
+                return constructed_url
+
+            logger.warning(f"No GitHub Advisory URL found for {canonical_id}")
+            return None
+
+        except json.JSONDecodeError as e:
+            logger.error(f"Malformed JSON in references_json for {canonical_id}: {e}")
+            return None
+
     def verify_record(self, record: dict) -> dict:
         """
         Verify a single threat_intelligence_records record.
@@ -398,8 +597,13 @@ class VerificationOrchestrator:
 
         logger.info(f"Verifying {canonical_id} (id={item_id})")
 
-        # Extract NVD URL
-        url = self.extract_nvd_url(references_json, canonical_id)
+        # Extract appropriate URL based on source
+        if self.source == 'github_advisories':
+            url = self.extract_github_advisory_url(references_json, canonical_id)
+            error_msg = 'No valid GitHub Advisory URL found'
+        else:  # Default to NVD
+            url = self.extract_nvd_url(references_json, canonical_id)
+            error_msg = 'No valid NVD URL found'
 
         if not url:
             return {
@@ -414,7 +618,7 @@ class VerificationOrchestrator:
                 'fuzzy_score': None,
                 'combined_score': None,
                 'verdict': 'UNVERIFIABLE',
-                'error_msg': 'No valid NVD URL found'
+                'error_msg': error_msg
             }
 
         # Scrape description
@@ -568,7 +772,7 @@ def main():
         '--source',
         type=str,
         default='nvd',
-        choices=['nvd'],  # Future: github, pypi
+        choices=['nvd', 'github_advisories'],  # Future: pypi
         help='Source to verify (default: nvd)'
     )
     parser.add_argument(
