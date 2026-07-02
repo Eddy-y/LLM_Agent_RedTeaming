@@ -5,9 +5,15 @@ Validates LLM-generated summaries against original source content by:
 1. Scraping vulnerability descriptions from NVD web pages
 2. Extracting keywords using TF-IDF
 3. Calculating hybrid Jaccard + fuzzy similarity scores
-4. Logging results to verification_logs table
+4. Logging results to summary_verification_logs table
 
 MVP Scope: NVD CVE descriptions only
+
+The trustability of each LLM-generated summary is calculated using a hybrid, weighted scoring system composed of two distinct metrics:
+1. A Jaccard Similarity Score (weighted at 60%), which measures the exact overlap between domain-specific, TF-IDF-extracted keywords from both the LLM summary and the scraped NVD source text.
+2. A Fuzzy Matching Score (weighted at 40%), which uses token set ratios to evaluate broader semantic alignment and accommodate natural phrasing variations.
+These two scores are combined into a single trustability metric. If this combined score meets or exceeds a baseline threshold of 0.4 (or 0.3 for short text summaries), the summary receives a validation verdict of 'MATCH'; otherwise, it is flagged as a 'MISMATCH'.
+
 """
 
 import json
@@ -29,7 +35,7 @@ from src.db import (
     get_db_connection,
     release_db_connection,
     get_unverified_records,
-    insert_verification_log,
+    insert_summary_verification_log,
     update_verification_status
 )
 
@@ -381,7 +387,7 @@ class VerificationOrchestrator:
 
     def verify_record(self, record: dict) -> dict:
         """
-        Verify a single normalized_items record.
+        Verify a single threat_intelligence_records record.
 
         Returns log_data dict for insertion into verification_logs.
         """
@@ -397,7 +403,7 @@ class VerificationOrchestrator:
 
         if not url:
             return {
-                'normalized_item_id': item_id,
+                'threat_intel_record_id': item_id,
                 'source_url': '',
                 'scrape_status': 'error',
                 'scraped_content': None,
@@ -416,7 +422,7 @@ class VerificationOrchestrator:
 
         if scrape_result['status'] != 'success':
             return {
-                'normalized_item_id': item_id,
+                'threat_intel_record_id': item_id,
                 'source_url': url,
                 'scrape_status': scrape_result['status'],
                 'scraped_content': None,
@@ -454,7 +460,7 @@ class VerificationOrchestrator:
             logger.info(f"  Verdict: {verdict}")
 
         return {
-            'normalized_item_id': item_id,
+            'threat_intel_record_id': item_id,
             'source_url': url,
             'scrape_status': 'success',
             'scraped_content': scraped_content,
@@ -500,9 +506,9 @@ class VerificationOrchestrator:
                     log_data = self.verify_record(record)
 
                     # Insert verification log
-                    insert_verification_log(conn, log_data)
+                    insert_summary_verification_log(conn, log_data)
 
-                    # Update normalized_items status
+                    # Update threat_intelligence_records status
                     update_verification_status(conn, record['id'], log_data['verdict'])
 
                     # Update statistics

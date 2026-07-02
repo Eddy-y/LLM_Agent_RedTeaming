@@ -74,7 +74,7 @@ def get_metrics():
     conn = get_db_connection()
     try:
         cur = conn.cursor(cursor_factory=extras.RealDictCursor)
-        cur.execute("SELECT * FROM evaluation_metrics ORDER BY evaluated_at DESC LIMIT 50")
+        cur.execute("SELECT * FROM graph_execution_metrics ORDER BY evaluated_at DESC LIMIT 50")
         return cur.fetchall()
     finally:
         release_db_connection(conn)
@@ -84,7 +84,7 @@ def get_threats(limit: int = 50, offset: int = 0):
     conn = get_db_connection()
     try:
         cur = conn.cursor(cursor_factory=extras.RealDictCursor)
-        cur.execute("SELECT * FROM normalized_items ORDER BY published_at DESC NULLS LAST LIMIT %s OFFSET %s", (limit, offset))
+        cur.execute("SELECT * FROM threat_intelligence_records ORDER BY published_at DESC NULLS LAST LIMIT %s OFFSET %s", (limit, offset))
         return cur.fetchall()
     finally:
         release_db_connection(conn)
@@ -94,7 +94,7 @@ def get_audits():
     conn = get_db_connection()
     try:
         cur = conn.cursor(cursor_factory=extras.RealDictCursor)
-        cur.execute("SELECT * FROM audit_logs ORDER BY timestamp DESC LIMIT 50")
+        cur.execute("SELECT * FROM url_validation_logs ORDER BY timestamp DESC LIMIT 50")
         return cur.fetchall()
     finally:
         release_db_connection(conn)

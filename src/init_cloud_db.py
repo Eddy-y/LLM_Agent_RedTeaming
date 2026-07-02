@@ -15,14 +15,14 @@ def provision_database():
             cur.execute("CREATE EXTENSION IF NOT EXISTS vector;")
             
             cur.execute("""
-                CREATE TABLE IF NOT EXISTS fetch_log (
+                CREATE TABLE IF NOT EXISTS ingestion_logs (
                   id SERIAL PRIMARY KEY, run_id TEXT NOT NULL, package_name TEXT NOT NULL,
                   source TEXT NOT NULL, endpoint TEXT NOT NULL, fetched_at_utc TEXT NOT NULL,
                   http_status INTEGER, error TEXT, raw_path TEXT NOT NULL
                 );
             """)
             cur.execute("""
-                CREATE TABLE IF NOT EXISTS normalized_items (
+                CREATE TABLE IF NOT EXISTS threat_intelligence_records (
                   id SERIAL PRIMARY KEY, run_id TEXT NOT NULL, package_name TEXT NOT NULL,
                   source TEXT NOT NULL, record_type TEXT NOT NULL, canonical_id TEXT,
                   title TEXT, summary TEXT, severity TEXT, published_at TEXT,
@@ -37,24 +37,24 @@ def provision_database():
                 BEGIN
                     IF NOT EXISTS (
                         SELECT 1 FROM information_schema.columns
-                        WHERE table_name='normalized_items' AND column_name='verification_status'
+                        WHERE table_name='threat_intelligence_records' AND column_name='verification_status'
                     ) THEN
-                        ALTER TABLE normalized_items ADD COLUMN verification_status VARCHAR(20);
+                        ALTER TABLE threat_intelligence_records ADD COLUMN verification_status VARCHAR(20);
                     END IF;
                     IF NOT EXISTS (
                         SELECT 1 FROM information_schema.columns
-                        WHERE table_name='normalized_items' AND column_name='last_verified_at'
+                        WHERE table_name='threat_intelligence_records' AND column_name='last_verified_at'
                     ) THEN
-                        ALTER TABLE normalized_items ADD COLUMN last_verified_at TIMESTAMP;
+                        ALTER TABLE threat_intelligence_records ADD COLUMN last_verified_at TIMESTAMP;
                     END IF;
                 END $$;
             """)
             cur.execute("""
-                CREATE INDEX IF NOT EXISTS idx_normalized_verification
-                ON normalized_items(verification_status);
+                CREATE INDEX IF NOT EXISTS idx_threat_intel_verification
+                ON threat_intelligence_records(verification_status);
             """)
             cur.execute("""
-                CREATE TABLE IF NOT EXISTS evaluation_metrics (
+                CREATE TABLE IF NOT EXISTS graph_execution_metrics (
                     id SERIAL PRIMARY KEY, evaluated_at TIMESTAMP NOT NULL,
                     package_target VARCHAR(255) NOT NULL, retrieval_latency_sec REAL,
                     analysis_latency_sec REAL, total_latency_sec REAL,
@@ -63,16 +63,16 @@ def provision_database():
                 );
             """)
             cur.execute("""
-                CREATE TABLE IF NOT EXISTS audit_logs (
+                CREATE TABLE IF NOT EXISTS url_validation_logs (
                     id SERIAL PRIMARY KEY, timestamp TIMESTAMP NOT NULL,
                     file_origin TEXT, agent_name TEXT, hallucination_detected BOOLEAN,
                     hallucination_reason TEXT, url_validation_json TEXT
                 );
             """)
             cur.execute("""
-                CREATE TABLE IF NOT EXISTS verification_logs (
+                CREATE TABLE IF NOT EXISTS summary_verification_logs (
                     id SERIAL PRIMARY KEY,
-                    normalized_item_id INTEGER NOT NULL,
+                    threat_intel_record_id INTEGER NOT NULL,
                     verified_at TIMESTAMP NOT NULL DEFAULT NOW(),
                     source_url TEXT NOT NULL,
                     scrape_status VARCHAR(50),
@@ -85,20 +85,20 @@ def provision_database():
                     combined_score REAL,
                     verdict VARCHAR(20),
                     error_msg TEXT,
-                    FOREIGN KEY (normalized_item_id) REFERENCES normalized_items(id) ON DELETE CASCADE
+                    FOREIGN KEY (threat_intel_record_id) REFERENCES threat_intelligence_records(id) ON DELETE CASCADE
                 );
             """)
             cur.execute("""
-                CREATE INDEX IF NOT EXISTS idx_verification_verdict
-                ON verification_logs(verdict);
+                CREATE INDEX IF NOT EXISTS idx_summary_verification_verdict
+                ON summary_verification_logs(verdict);
             """)
             cur.execute("""
-                CREATE INDEX IF NOT EXISTS idx_verification_item
-                ON verification_logs(normalized_item_id);
+                CREATE INDEX IF NOT EXISTS idx_summary_verification_record
+                ON summary_verification_logs(threat_intel_record_id);
             """)
             cur.execute("""
-                CREATE INDEX IF NOT EXISTS idx_verification_score
-                ON verification_logs(combined_score);
+                CREATE INDEX IF NOT EXISTS idx_summary_verification_score
+                ON summary_verification_logs(combined_score);
             """)
         conn.commit()
         print("\nDatabase provisioning complete!")

@@ -18,7 +18,7 @@ An autonomous Cyber Threat Intelligence (CTI) platform that harvests security fe
 2. **Queue** (AWS SQS) → Decouples ingestion from processing
 3. **Worker** (`src/lambda_worker.py`) → Lambda function or local daemon drains queue → Routes to specialist agents → Normalizes → Writes to RDS
 4. **LangGraph Engine** (`graph_agents.py`) → Conversational intelligence with researcher → analyzer → interception nodes
-5. **Verification** (`src/verifier.py`) → Async hallucination auditor validates URLs and checks for fabricated content
+5. **Validation** (`src/validators/`) → URL validation and summary verification modules
 
 ### Key Components
 
@@ -35,28 +35,27 @@ An autonomous Cyber Threat Intelligence (CTI) platform that harvests security fe
 
 **Database** (`src/db.py`)
 - ThreadedConnectionPool (1-20 connections)
-- Tables: `normalized_items`, `fetch_log`, `evaluation_metrics`, `audit_logs`
+- Tables: `threat_intelligence_records`, `ingestion_logs`, `graph_execution_metrics`, `url_validation_logs`, `summary_verification_logs`
 - PostgreSQL with pgvector extension for semantic search
 
-**URL Validation** (`src/verifier.py`)
+**URL Validation** (`src/validators/url_validator.py`)
 - `validate_and_log_urls()`: Lightweight URL validation without LLM overhead
 - Spawns background thread for async validation
 - Extracts all URLs from agent responses using regex
 - Validates each URL via HTTP HEAD requests (checks for 404/timeouts)
-- Logs detailed findings to `audit_logs` table with:
+- Logs detailed findings to `url_validation_logs` table with:
   - All URLs found in response
   - Which URLs are valid (HTTP 2xx/3xx)
   - Which URLs are invalid (4xx/5xx or unreachable)
   - Summary statistics
-- `run_verification_and_log()`: Legacy LLM-based hallucination detection (deprecated for graph agents)
 
-**Summary Verification** (`src/summary_verifier.py`)
+**Summary Verification** (`src/validators/summary_verifier.py`)
 - Validates LLM-generated summaries against original source content without using LLMs
 - Three-stage pipeline: scrape → extract keywords → calculate similarity
 - **NVDScraper**: Web scraper with 6-second rate limiting, retry logic, and fallback CSS selectors
 - **KeywordExtractor**: TF-IDF-based keyword extraction with security-domain stopwords
 - **SimilarityAnalyzer**: Hybrid scoring using Jaccard coefficient (0.6 weight) + fuzzy token matching (0.4 weight)
-- **VerificationOrchestrator**: Coordinates workflow, logs results to `verification_logs` table
+- **VerificationOrchestrator**: Coordinates workflow, logs results to `summary_verification_logs` table
 - Verdict thresholds: MATCH (≥0.4 combined score), MISMATCH (<0.4), UNVERIFIABLE (scrape failed)
 - Short summary adjustment: Lower threshold to 0.3 for summaries <20 characters
 - Zero cost per verification (vs. $0.001 for LLM-based verification)
@@ -73,6 +72,9 @@ An autonomous Cyber Threat Intelligence (CTI) platform that harvests security fe
 
 # Initialize database schema (run once or after schema changes)
 python -m src.init_cloud_db
+
+# If migrating from old table names, run migration script first:
+python -m src.migrate_table_names
 ```
 
 ### Data Pipeline Operations
@@ -121,10 +123,10 @@ streamlit run app_dashboard.py
 **Step 5: Verify summaries (optional)**
 ```bash
 # Verify 50 records from NVD
-python -m src.summary_verifier --batch-size 50 --source nvd
+python -m src.validators.summary_verifier --batch-size 50 --source nvd
 
 # Verbose mode with keyword/score output
-python -m src.summary_verifier --batch-size 10 --verbose
+python -m src.validators.summary_verifier --batch-size 10 --verbose
 ```
 
 ### Testing
@@ -210,7 +212,7 @@ threading.Thread(
     daemon=True
 ).start()
 ```
-This validates all URLs in the response via HTTP HEAD requests and logs results to `audit_logs` without calling an LLM.
+This validates all URLs in the response via HTTP HEAD requests and logs results to `url_validation_logs` without calling an LLM.
 
 ### Summary Verification Pattern
 Validate LLM-generated summaries against source content without LLM overhead:
@@ -268,29 +270,38 @@ This approach eliminates LLM cost while providing deterministic, reproducible ve
 
 ## Database Schema
 
-**normalized_items** (main threat intel table):
+**threat_intelligence_records** (main threat intel table):
 - Unique constraint on `(canonical_id, package_name)`
 - Full-text search on `summary` using `to_tsvector('english', summary)`
 - Optional `embedding` column (vector(1536)) for future semantic search
+- Columns: id, run_id, package_name, source, record_type, canonical_id, title, summary, severity, published_at, references_json, embedding, verification_status, last_verified_at
 
-**audit_logs**:
-- Tracks hallucination detection results
-- Stores URL validation JSON
-- Populated by async verifier threads
+**url_validation_logs**:
+- Tracks URL validation results from agent responses
+- Stores detailed URL validation JSON with HTTP status codes
+- Populated by async URL validator threads
+- Columns: id, timestamp, file_origin, agent_name, hallucination_detected, hallucination_reason, url_validation_json
 
-**evaluation_metrics**:
+**graph_execution_metrics**:
 - Performance tracking: retrieval_latency_sec, analysis_latency_sec, total_latency_sec
-- Guardrail trigger counts
+- Guardrail trigger counts and execution step counts
 - Per-package granularity
+- Columns: id, evaluated_at, package_target, retrieval_latency_sec, analysis_latency_sec, total_latency_sec, cves_correlated, mitre_capec_linked, guardrail_triggered, total_steps
 
-**verification_logs**:
-- Links to `normalized_items` via `normalized_item_id`
+**summary_verification_logs**:
+- Links to `threat_intelligence_records` via `threat_intel_record_id`
 - Stores scraped source content and HTTP status
-- Keywords extracted from both LLM summary and source (JSON arrays)
+- Keywords extracted from both LLM summary and source (TEXT arrays)
 - Similarity scores: jaccard_score, fuzzy_score, combined_score
 - Verdict: 'MATCH', 'MISMATCH', or 'UNVERIFIABLE'
 - Scrape status tracking: 'success', 'not_found', 'blocked', 'timeout', 'error'
-- Populated by `summary_verifier.py` module
+- Populated by `src/validators/summary_verifier.py` module
+- Columns: id, threat_intel_record_id, verified_at, source_url, scrape_status, scraped_content, http_status, keywords_llm, keywords_source, jaccard_score, fuzzy_score, combined_score, verdict, error_msg
+
+**ingestion_logs**:
+- Tracks raw data fetching operations
+- Records HTTP status, errors, and raw data file paths
+- Columns: id, run_id, package_name, source, endpoint, fetched_at_utc, http_status, error, raw_path
 
 ## AWS Profile Configuration
 

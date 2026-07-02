@@ -29,7 +29,7 @@ def search_local_cti(package_name: str) -> str:
         cursor.execute(
             """
             SELECT source, record_type, canonical_id, title, summary, severity 
-            FROM normalized_items 
+            FROM threat_intelligence_records 
             WHERE package_name = %s OR summary ILIKE %s OR title ILIKE %s
             LIMIT 50
             """, 

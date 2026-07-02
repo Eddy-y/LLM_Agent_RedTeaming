@@ -45,7 +45,7 @@ def get_existing_ids(package_name: str, source: str) -> set[str]:
     try:
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT canonical_id FROM normalized_items WHERE package_name = %s AND source = %s",
+                "SELECT canonical_id FROM threat_intelligence_records WHERE package_name = %s AND source = %s",
                 (package_name, source)
             )
             return {row[0] for row in cur.fetchall() if row[0]}

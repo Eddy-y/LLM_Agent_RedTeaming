@@ -7,7 +7,7 @@ import operator
 from langchain_core.messages import BaseMessage, SystemMessage, HumanMessage, ToolMessage, AIMessage
 from langgraph.graph import StateGraph, END
 from src.metrics import log_metric
-from src.verifier import validate_and_log_urls
+from src.validators.url_validator import validate_and_log_urls
 
 class AgentState(TypedDict):
     messages: Annotated[Sequence[BaseMessage], operator.add]
@@ -33,7 +33,7 @@ def fetch_semantic_cti_data(query: str):
         # Select source along with identifiers to build pristine source mappings
         cursor.execute("""
             SELECT canonical_id, package_name, source, severity, summary 
-            FROM normalized_items 
+            FROM threat_intelligence_records 
             WHERE to_tsvector('english', summary) @@ plainto_tsquery('english', %s)
             OR package_name = %s LIMIT 5
         """, (query, query))
