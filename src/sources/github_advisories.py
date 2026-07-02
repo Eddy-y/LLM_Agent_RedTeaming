@@ -94,17 +94,28 @@ def fetch_github_advisories(
                 timeout=timeout_seconds,
             )
             status = resp.status_code
-            
-            # GitHub specific rate limit (403) and standard errors
-            if status in [403, 429, 500, 502, 503, 504]:
-                resp.raise_for_status()
 
+            # Log detailed error for rate limit and other failures
             if status != 200:
-                return status, None, f"GitHub GraphQL returned status {status}: {resp.text[:200]}", endpoint
+                try:
+                    error_body = resp.json()
+                    error_msg = error_body.get("message", resp.text[:200])
+                except Exception:
+                    error_msg = resp.text[:200]
+
+                print(f"    [WARN] GitHub API error (HTTP {status}): {error_msg}")
+
+                # GitHub specific rate limit (403) and standard errors
+                if status in [403, 429, 500, 502, 503, 504]:
+                    resp.raise_for_status()
+
+                return status, None, f"GitHub GraphQL returned status {status}: {error_msg}", endpoint
 
             data = resp.json()
             if "errors" in data:
-                return status, data, f"GitHub GraphQL errors: {data['errors']}", endpoint
+                error_details = data['errors']
+                print(f"    [WARN] GitHub GraphQL errors: {error_details}")
+                return status, data, f"GitHub GraphQL errors: {error_details}", endpoint
 
             vuln_data = (((data.get("data") or {}).get("securityVulnerabilities") or {}))
             nodes = vuln_data.get("nodes") or []

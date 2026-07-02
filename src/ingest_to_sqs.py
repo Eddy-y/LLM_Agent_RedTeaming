@@ -39,7 +39,7 @@ def get_existing_ids(package_name: str, source: str) -> set[str]:
     """
     conn = get_db_connection()
     if not conn:
-        print(f"    ⚠️ DB connection unavailable, skipping deduplication check for {package_name}")
+        print(f"    [WARN] DB connection unavailable, skipping deduplication check for {package_name}")
         return set()
 
     try:
@@ -50,7 +50,7 @@ def get_existing_ids(package_name: str, source: str) -> set[str]:
             )
             return {row[0] for row in cur.fetchall() if row[0]}
     except Exception as e:
-        print(f"    ⚠️ Error fetching existing IDs for {package_name}/{source}: {e}")
+        print(f"    [WARN] Error fetching existing IDs for {package_name}/{source}: {e}")
         return set()
     finally:
         release_db_connection(conn)
@@ -111,7 +111,7 @@ def filter_new_items(raw_items: list[dict], package: str, source: str) -> list[d
 
     filtered_count = len(raw_items) - len(new_items)
     if filtered_count > 0:
-        print(f"    ✅ Deduplicated {filtered_count}/{len(raw_items)} existing {source} items for {package}")
+        print(f"    [DEDUP] Filtered {filtered_count}/{len(raw_items)} existing {source} items for {package}")
 
     return new_items
 
@@ -168,7 +168,7 @@ def _run_universal_corpora(run_id: str):
             push_to_sqs(run_id, "Universal", "attack", new_mitre)
             advance_mitre_offset(5)
         else:
-            print(f"    ℹ️ All {len(mitre_data['objects'])} MITRE objects already exist")
+            print(f"    [INFO] All {len(mitre_data['objects'])} MITRE objects already exist")
 
     capec_offset = state.get("capec_offset", 0)
     capec_data = fetch_capec_objects(offset=capec_offset, limit=5)
@@ -178,7 +178,7 @@ def _run_universal_corpora(run_id: str):
             push_to_sqs(run_id, "Universal", "capec", new_capec)
             advance_capec_offset(5)
         else:
-            print(f"    ℹ️ All {len(capec_data['objects'])} CAPEC objects already exist")
+            print(f"    [INFO] All {len(capec_data['objects'])} CAPEC objects already exist")
 
 def _run_for_package(run_id: str, package: str, settings) -> None:
     print(f"\nRunning ingestion for package: {package}")
@@ -204,9 +204,16 @@ def _run_for_package(run_id: str, package: str, settings) -> None:
         gh_path = _raw_path_for(settings.data_dir, run_id, package, GITHUB_SOURCE)
         if gh_payload:
             write_json(gh_path, gh_payload)
+            # Extract nodes array from payload structure: {"package": "...", "nodes": [...]}
+            nodes = gh_payload.get("nodes", [])
             # Deduplicate before queuing
-            new_advisories = filter_new_items(gh_payload, package, GITHUB_SOURCE)
-            push_to_sqs(run_id, package, GITHUB_SOURCE, new_advisories)
+            new_advisories = filter_new_items(nodes, package, GITHUB_SOURCE)
+            if new_advisories:
+                push_to_sqs(run_id, package, GITHUB_SOURCE, new_advisories)
+            else:
+                print(f"    [INFO] All {len(nodes)} GitHub advisories already exist for: {package}")
+        else:
+            print(f"    [WARN] GitHub Advisories fetch failed for {package}. Status: {gh_status} | Error: {gh_err}")
 
     # Fetch NVD CVEs
     nvd_status, nvd_payload, nvd_err, nvd_end = fetch_nvd_cves(package, api_key=settings.nvd_api_key, timeout_seconds=settings.http_timeout_seconds, user_agent=settings.user_agent)
@@ -229,11 +236,11 @@ def _run_for_package(run_id: str, package: str, settings) -> None:
                 print(f"    [SQS] Queuing {len(new_vulns)} new items for nvd processing...")
                 push_to_sqs(run_id, package, NVD_SOURCE, new_vulns)
             else:
-                print(f"    ℹ️ All {len(vulns)} NVD records already exist for: {package}")
+                print(f"    [INFO] All {len(vulns)} NVD records already exist for: {package}")
         else:
-            print(f"    ℹ️ NVD returned 0 active CVE records for: {package}")
+            print(f"    [INFO] NVD returned 0 active CVE records for: {package}")
     else:
-        print(f"    ⚠️ NVD Fetch failed for {package}. Status: {nvd_status} | Error: {nvd_err}")
+        print(f"    [WARN] NVD Fetch failed for {package}. Status: {nvd_status} | Error: {nvd_err}")
 
 if __name__ == "__main__":
     run_id = run_pipeline()

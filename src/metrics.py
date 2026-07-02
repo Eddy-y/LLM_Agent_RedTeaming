@@ -5,6 +5,7 @@ Migrated to Amazon RDS (PostgreSQL) for centralized research data collection.
 """
 from datetime import datetime
 from db import get_db_connection
+from .db import get_db_connection
 
 def _init_metrics_table(conn):
     """Ensures the graph_execution_metrics table exists in RDS."""

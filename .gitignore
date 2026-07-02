@@ -1,23 +1,46 @@
+# ==========================================
+# Python Environments
+# ==========================================
+# Ignore virtual environment directories to prevent committing massive dependency folders
 *venv/
 *.venv/
-.env*
-__pycache__/*
-data/
-data/raw/
 venv*
 .venv*
-*__pycache__
-**/__pycache__/
+
+# ==========================================
+# Secrets & Configuration
+# ==========================================
+# Ignore environment variables and local configurations to prevent leaking API keys
+.env
+.env*
+
+# ==========================================
+# Python Cache & Compiled Files
+# ==========================================
+# Ignore compiled byte-code and cache directories that Python generates automatically
 *.pyc
 *.pyo
 *.pyd
+__pycache__/*
+*__pycache__
+**/__pycache__/
+
+# ==========================================
+# Data & Databases
+# ==========================================
+# Ignore local databases and generated data/logs
 *.sqlite
 *.db
-.env
-samconfig.toml
+data/
+data/raw/
 data/agent_summary.csv
 data/evaluation_results.jsonl
 data/audit_logs.jsonl
-# AWS SAM build artifacts
+
+# ==========================================
+# AWS Serverless Application Model (SAM)
+# ==========================================
+# Ignore AWS SAM build artifacts and local deployment configurations
 .aws-sam/
 .sam-cfg.json
+samconfig.toml

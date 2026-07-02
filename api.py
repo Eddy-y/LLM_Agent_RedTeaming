@@ -1,3 +1,6 @@
+import sys
+import os
+sys.path.insert(0, os.path.abspath("src"))
 import traceback
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import StreamingResponse
@@ -10,6 +13,7 @@ from langchain_aws import ChatBedrock
 from src.config import get_settings
 from src.db import get_db_connection, release_db_connection
 from graph_agents import build_red_team_graph
+
 
 settings = get_settings()
 llm = ChatBedrock(model_id=settings.bedrock_model_id, region_name="us-east-1", credentials_profile_name=settings.aws_profile_name)
