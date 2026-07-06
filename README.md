@@ -71,10 +71,10 @@ Run the summary verification module to validate that LLM-generated summaries mat
 
 ```bash
 # Verify 50 records
-python -m src.summary_verifier --batch-size 50 --source nvd
+python -m src.validators.summary_verifier --batch-size 50 --source nvd
 
 # Verbose mode (show keywords and scores)
-python -m src.summary_verifier --batch-size 10 --verbose
+python -m src.validators.summary_verifier --batch-size 10 --verbose
 ```
 
 **📈 Performance:**
