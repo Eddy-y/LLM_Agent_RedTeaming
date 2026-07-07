@@ -4,7 +4,7 @@ Manages pagination state for external APIs (MITRE, CAPEC).
 Migrated to PostgreSQL to ensure state persistence across stateless AWS Lambda workers.
 """
 
-from .db import get_db_connection
+from db import get_db_connection
 
 def _init_state_table(conn):
     """Ensures the state tracking table exists in RDS."""

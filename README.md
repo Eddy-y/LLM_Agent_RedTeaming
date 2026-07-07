@@ -66,6 +66,23 @@ Spin up your local Uvicorn wrapper engine to coordinate incoming frontend web st
 Open a secondary terminal window and launch your graphical control cockpit interface panel:
 `streamlit run app_dashboard.py`
 
+### Step 5: Verifying LLM-Generated Summaries (Optional)
+Run the summary verification module to validate that LLM-generated summaries match source content using TF-IDF keyword extraction and hybrid similarity scoring:
+
+```bash
+# Verify 50 records
+python -m src.validators.summary_verifier --batch-size 50 --source nvd
+
+# Verbose mode (show keywords and scores)
+python -m src.validators.summary_verifier --batch-size 10 --verbose
+```
+
+**📈 Performance:**
+- **Per-record time:** ~7-8 seconds (6s rate limit + 1-2s scraping/analysis)
+- **Cost:** $0.00 per record (vs. $0.001 with LLM verification)
+- **100 records:** ~12 minutes
+- **Daily workload:** < 1 hour for typical ingestion volume
+
 ## 🔬 Core UI Playbook
 
 Use these specific inputs inside the **Agent Sandbox Playground** to verify distinct platform features for grading demonstrations:

@@ -2,7 +2,7 @@ import os
 import json
 import re
 import boto3
-from .config import get_settings
+from config import get_settings
 from botocore.exceptions import ClientError
 
 aws_session = boto3.Session(profile_name=get_settings().aws_profile_name)
@@ -63,9 +63,16 @@ def run_nvd_agent(raw_items, package_name):
     You MUST output ONLY a valid JSON object using exactly these keys: {{"id": "...", "details": "...", "severity": "...", "published_at": "...", "references": ["url1", "url2"]}}"""
     return _execute_specialist(raw_items, prompt, "nvd")
 def run_mitre_agent(raw_items):
-    return _execute_specialist(raw_items, "Extract id, name, details. Output JSON only.", "attack")
+    prompt = """Extract MITRE ATT&CK technique details. Find the external_id from external_references array where source_name='mitre-attack' (e.g., T1055.011).
+    You MUST output ONLY a valid JSON object using exactly these keys: {"id": "T1055.011", "name": "technique name", "details": "description text", "published_at": "2020-01-14T17:18:32.126Z"}
+    Use the 'created' field for published_at. The 'id' field MUST be the external_id (like T1055.011), NOT the STIX ID."""
+    return _execute_specialist(raw_items, prompt, "attack")
+
 def run_capec_agent(raw_items):
-    return _execute_specialist(raw_items, "Extract CAPEC details. You MUST include an 'id' key representing the CAPEC ID. Output JSON only.", "capec")
+    prompt = """Extract CAPEC attack pattern details. Find the external_id from external_references array where source_name='capec' (e.g., CAPEC-1).
+    You MUST output ONLY a valid JSON object using exactly these keys: {"id": "CAPEC-1", "name": "pattern name", "details": "description text", "severity": "High/Medium/Low", "published_at": "2014-06-23T00:00:00.000Z", "references": ["url1", "url2"]}
+    The 'id' field MUST be the external_id (like CAPEC-1), NOT the STIX ID. Extract 'x_capec_typical_severity' for severity. Use 'created' for published_at."""
+    return _execute_specialist(raw_items, prompt, "capec")
 
 def run_central_normalizer(specialist_outputs, source_name):
     prompt = f"""Normalize the following threat intelligence data. 

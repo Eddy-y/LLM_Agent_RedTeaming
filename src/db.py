@@ -57,11 +57,11 @@ def insert_normalized_batch(conn, run_id, package_name, rows):
     if not valid_rows: return
 
     query = """
-        INSERT INTO normalized_items 
+        INSERT INTO threat_intelligence_records
           (run_id, package_name, source, record_type, canonical_id, title, summary, severity, published_at, references_json)
         VALUES %s
-        ON CONFLICT (canonical_id, package_name) 
-        DO UPDATE SET 
+        ON CONFLICT (canonical_id, package_name)
+        DO UPDATE SET
           run_id = EXCLUDED.run_id,
           source = EXCLUDED.source,
           record_type = EXCLUDED.record_type,
@@ -81,10 +81,10 @@ def insert_normalized_batch(conn, run_id, package_name, rows):
         execute_values(cur, query, values)
         conn.commit()
 
-def log_audit_event(conn, log_entry: dict):
+def log_url_validation_event(conn, log_entry: dict):
     with conn.cursor() as cur:
         cur.execute("""
-            INSERT INTO audit_logs (timestamp, file_origin, agent_name, hallucination_detected, hallucination_reason, url_validation_json)
+            INSERT INTO url_validation_logs (timestamp, file_origin, agent_name, hallucination_detected, hallucination_reason, url_validation_json)
             VALUES (%s, %s, %s, %s, %s, %s)
         """, (
             log_entry["timestamp"], log_entry["file_origin"], log_entry["agent_name"],
@@ -92,5 +92,73 @@ def log_audit_event(conn, log_entry: dict):
             log_entry["evaluation"]["hallucination_reason"],
             json.dumps(log_entry["evaluation"]["url_validation"])
         ))
+        conn.commit()
+
+def get_unverified_records(conn, source: str, limit: int = 50):
+    """
+    Fetch unverified records from threat_intelligence_records for verification.
+    Priority: never verified > failed verification > old verifications.
+
+    Returns list of dicts with keys: id, canonical_id, summary, references_json
+    """
+    with conn.cursor(cursor_factory=RealDictCursor) as cur:
+        cur.execute("""
+            SELECT id, canonical_id, summary, references_json
+            FROM threat_intelligence_records
+            WHERE source = %s
+            AND (
+                verification_status IS NULL
+                OR (last_verified_at < NOW() - INTERVAL '30 days' AND verification_status = 'MISMATCH')
+            )
+            ORDER BY id ASC
+            LIMIT %s
+        """, (source, limit))
+        return cur.fetchall()
+
+def insert_summary_verification_log(conn, log_data: dict):
+    """
+    Insert a verification log entry into summary_verification_logs table.
+
+    Expected log_data keys:
+    - threat_intel_record_id (int)
+    - source_url (str)
+    - scrape_status (str)
+    - scraped_content (str or None)
+    - http_status (int or None)
+    - keywords_llm (list[str])
+    - keywords_source (list[str])
+    - jaccard_score (float or None)
+    - fuzzy_score (float or None)
+    - combined_score (float or None)
+    - verdict (str)
+    - error_msg (str or None)
+    """
+    with conn.cursor() as cur:
+        cur.execute("""
+            INSERT INTO summary_verification_logs (
+                threat_intel_record_id, source_url, scrape_status, scraped_content, http_status,
+                keywords_llm, keywords_source, jaccard_score, fuzzy_score, combined_score,
+                verdict, error_msg
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        """, (
+            log_data["threat_intel_record_id"], log_data["source_url"], log_data["scrape_status"],
+            log_data.get("scraped_content"), log_data.get("http_status"),
+            log_data.get("keywords_llm", []), log_data.get("keywords_source", []),
+            log_data.get("jaccard_score"), log_data.get("fuzzy_score"),
+            log_data.get("combined_score"), log_data["verdict"], log_data.get("error_msg")
+        ))
+        conn.commit()
+
+def update_verification_status(conn, item_id: int, verdict: str):
+    """
+    Update verification_status and last_verified_at for a threat_intelligence_record.
+    """
+    with conn.cursor() as cur:
+        cur.execute("""
+            UPDATE threat_intelligence_records
+            SET verification_status = %s, last_verified_at = NOW()
+            WHERE id = %s
+        """, (verdict, item_id))
         conn.commit()
 
