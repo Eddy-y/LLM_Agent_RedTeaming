@@ -1,0 +1,10 @@
+# Minimal Lambda Layer Dependencies
+# boto3, botocore are already provided by Lambda runtime - DO NOT INCLUDE
+
+# Core dependencies (must be included)
+neo4j>=5.14.0
+psycopg2-binary>=2.9.9
+pydantic>=2.7.4
+langchain>=0.2.6
+langchain-aws>=0.1.7
+langgraph>=0.1.4

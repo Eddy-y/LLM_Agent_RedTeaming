@@ -1,0 +1,15 @@
+# .samignore - Exclude files from Lambda deployment
+# NOTE: Most local-only scripts have been moved to scripts/ directory (not in CodeUri)
+# This file now only excludes modules that exist in src/ but aren't needed by Lambda
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Validator modules (not imported by lambda_worker - used for local verification only)
+validators/
+
+# Source-specific fetchers (not imported by lambda_worker - used by scripts/ingest_to_sqs.py)
+sources/

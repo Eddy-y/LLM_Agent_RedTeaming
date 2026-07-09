@@ -10,16 +10,16 @@ import os
 from pathlib import Path
 from dotenv import load_dotenv
 
-from config import get_settings
-from utils import ensure_dir, safe_slug, utc_now_iso, write_json
+from src.config import get_settings
+from scripts.utils import ensure_dir, safe_slug, utc_now_iso, write_json
 
-from sources.pypi import fetch_pypi_json, PYPI_SOURCE
-from sources.github_advisories import fetch_github_advisories, GITHUB_SOURCE
-from sources.nvd import fetch_nvd_cves, NVD_SOURCE
+from src.sources.pypi import fetch_pypi_json, PYPI_SOURCE
+from src.sources.github_advisories import fetch_github_advisories, GITHUB_SOURCE
+from src.sources.nvd import fetch_nvd_cves, NVD_SOURCE
 
-from fetchers import fetch_mitre_objects, fetch_capec_objects
-from state import load_state, advance_mitre_offset, advance_capec_offset
-from db import get_db_connection, release_db_connection
+from scripts.fetchers import fetch_mitre_objects, fetch_capec_objects
+from scripts.state import load_state, advance_mitre_offset, advance_capec_offset
+from src.db import get_db_connection, release_db_connection
 
 import dotenv
 dotenv.load_dotenv()

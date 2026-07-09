@@ -5,6 +5,12 @@ import boto3
 from config import get_settings
 from botocore.exceptions import ClientError
 
+# Import graph validation function (support both Lambda and local paths)
+try:
+    from graph_extractor import validate_relationship_triple
+except ImportError:
+    from src.graph_extractor import validate_relationship_triple
+
 aws_session = boto3.Session(profile_name=get_settings().aws_profile_name)
 bedrock_client = aws_session.client('bedrock-runtime', region_name='us-east-1')
 
@@ -55,23 +61,145 @@ def run_pypi_agent(raw_items):
     You MUST output ONLY a valid JSON object using exactly these keys: {"id": "...", "details": "...", "severity": "...", "published_at": "..."}"""
     return _execute_specialist(raw_items, prompt, "pypi")
 def run_github_agent(raw_items):
-    prompt = """Extract the advisory id, detailed description, severity level (CVSS), published date, and a list of reference URLs. 
-    You MUST output ONLY a valid JSON object using exactly these keys: {"id": "...", "details": "...", "severity": "...", "published_at": "...", "references": ["url1", "url2"]}"""
+    prompt = """Extract GitHub Security Advisory details AND relationship triples.
+
+REQUIRED FIELDS:
+- id: Advisory ID (e.g., "GHSA-xxxx-xxxx-xxxx")
+- details: Detailed description
+- severity: CVSS severity level
+- published_at: Publication date (ISO format)
+- references: List of reference URLs
+
+RELATIONSHIP EXTRACTION:
+- relationships: Array of relationship triples
+
+Extract these RELATIONSHIP TYPES if present in data:
+1. GHSA → AFFECTS → Package (extract package name and version range from "vulnerable_version_range" or "affected" field)
+2. GHSA → EXPLOITS → CWE (if CWE-* mentioned in "identifiers" array or description)
+
+RELATIONSHIP SCHEMA:
+{{
+  "subject": "GHSA-xxxx-xxxx-xxxx",
+  "subject_type": "Vulnerability",
+  "predicate": "EXPLOITS|AFFECTS",
+  "object": "CWE-89|package-name",
+  "object_type": "Weakness|Package",
+  "properties": {{"version_range": ">=X.Y.Z,<A.B.C"}}  // Only for AFFECTS
+}}
+
+ANTI-HALLUCINATION RULES:
+- ONLY extract CWE if present in "identifiers" field or explicitly mentioned
+- DO NOT guess version ranges
+- If uncertain, omit the relationship
+
+OUTPUT: Valid JSON with keys: {{"id": "...", "details": "...", "severity": "...", "published_at": "...", "references": [...], "relationships": []}}"""
     return _execute_specialist(raw_items, prompt, "github")
 def run_nvd_agent(raw_items, package_name):
-    prompt = f"""Extract CVE details for Python package '{package_name}'. Include the id, detailed description, severity level, published date, and a list of reference URLs. 
-    You MUST output ONLY a valid JSON object using exactly these keys: {{"id": "...", "details": "...", "severity": "...", "published_at": "...", "references": ["url1", "url2"]}}"""
+    prompt = f"""Extract CVE details AND relationship triples for Python package '{package_name}'.
+
+REQUIRED FIELDS:
+- id: CVE identifier (e.g., "CVE-2023-1234")
+- details: Detailed vulnerability description
+- severity: CVSS severity level (CRITICAL/HIGH/MEDIUM/LOW)
+- published_at: Publication date (ISO format)
+- references: List of reference URLs
+
+RELATIONSHIP EXTRACTION (NEW):
+- relationships: Array of relationship triples (see schema below)
+
+Extract these RELATIONSHIP TYPES if explicitly mentioned in the data:
+1. CVE → EXPLOITS → CWE (if CWE-* mentioned in "weaknesses" field or description)
+2. CVE → AFFECTS → Package (extract package name "{package_name}" and version range from "configurations" field)
+3. CVE → ENABLES → MITRE Tactic (if T-* or TA-* mentioned in description or references)
+
+RELATIONSHIP SCHEMA:
+{{
+  "subject": "CVE-YYYY-NNNNN",
+  "subject_type": "Vulnerability",
+  "predicate": "EXPLOITS|AFFECTS|ENABLES",
+  "object": "CWE-89|package-name|T1055",
+  "object_type": "Weakness|Package|AttackTactic",
+  "properties": {{"version_range": ">=X.Y.Z,<A.B.C"}}  // Only for AFFECTS predicate
+}}
+
+ANTI-HALLUCINATION RULES:
+- ONLY extract relationships explicitly stated in the data
+- DO NOT infer CWE numbers unless mentioned in "weaknesses" field or description
+- DO NOT guess MITRE tactic IDs
+- If uncertain, omit the relationship
+- Package version ranges MUST be extracted from "configurations" field, not guessed
+
+OUTPUT: Valid JSON with keys: {{"id": "...", "details": "...", "severity": "...", "published_at": "...", "references": ["url1", "url2"], "relationships": [...]}}
+If no relationships found, use empty array: "relationships": []"""
     return _execute_specialist(raw_items, prompt, "nvd")
 def run_mitre_agent(raw_items):
-    prompt = """Extract MITRE ATT&CK technique details. Find the external_id from external_references array where source_name='mitre-attack' (e.g., T1055.011).
-    You MUST output ONLY a valid JSON object using exactly these keys: {"id": "T1055.011", "name": "technique name", "details": "description text", "published_at": "2020-01-14T17:18:32.126Z"}
-    Use the 'created' field for published_at. The 'id' field MUST be the external_id (like T1055.011), NOT the STIX ID."""
+    prompt = """Extract MITRE ATT&CK technique details AND relationship triples.
+
+REQUIRED FIELDS:
+- id: External ID from external_references where source_name='mitre-attack' (e.g., "T1055.011")
+- name: Technique name
+- details: Description text
+- published_at: Creation timestamp (from 'created' field)
+
+RELATIONSHIP EXTRACTION:
+- relationships: Array of relationship triples
+
+Extract these RELATIONSHIP TYPES if present:
+1. Sub-technique → SUB_TECHNIQUE_OF → Parent Technique (if ID has dot notation like T1055.011 → T1055)
+2. Technique → IMPLEMENTS → CAPEC (if CAPEC references exist in "external_references" array)
+
+RELATIONSHIP SCHEMA:
+{{
+  "subject": "T1055.011",
+  "subject_type": "AttackTactic",
+  "predicate": "SUB_TECHNIQUE_OF|IMPLEMENTS",
+  "object": "T1055|CAPEC-66",
+  "object_type": "AttackTactic|AttackPattern"
+}}
+
+ANTI-HALLUCINATION RULES:
+- For sub-techniques: Extract parent ID by removing everything after the dot (T1055.011 → T1055)
+- ONLY extract CAPEC relationships if CAPEC-* appears in "external_references" array
+- DO NOT infer relationships
+
+OUTPUT: Valid JSON with keys: {{"id": "T####", "name": "...", "details": "...", "published_at": "...", "relationships": []}}
+The 'id' field MUST be the external_id (like T1055.011), NOT the STIX ID."""
     return _execute_specialist(raw_items, prompt, "attack")
 
 def run_capec_agent(raw_items):
-    prompt = """Extract CAPEC attack pattern details. Find the external_id from external_references array where source_name='capec' (e.g., CAPEC-1).
-    You MUST output ONLY a valid JSON object using exactly these keys: {"id": "CAPEC-1", "name": "pattern name", "details": "description text", "severity": "High/Medium/Low", "published_at": "2014-06-23T00:00:00.000Z", "references": ["url1", "url2"]}
-    The 'id' field MUST be the external_id (like CAPEC-1), NOT the STIX ID. Extract 'x_capec_typical_severity' for severity. Use 'created' for published_at."""
+    prompt = """Extract CAPEC attack pattern details AND relationship triples.
+
+REQUIRED FIELDS:
+- id: External ID from external_references where source_name='capec' (e.g., "CAPEC-1")
+- name: Pattern name
+- details: Description text
+- severity: Extract from 'x_capec_typical_severity' (High/Medium/Low)
+- published_at: Creation timestamp (from 'created' field)
+- references: List of reference URLs
+
+RELATIONSHIP EXTRACTION:
+- relationships: Array of relationship triples
+
+Extract these RELATIONSHIP TYPES if present:
+1. CAPEC → TARGETS → CWE (if present in "x_capec_related_weaknesses" or "related_weaknesses" field)
+2. CAPEC → CHILD_OF → Parent CAPEC (if present in hierarchy/parent relationship fields)
+
+RELATIONSHIP SCHEMA:
+{{
+  "subject": "CAPEC-66",
+  "subject_type": "AttackPattern",
+  "predicate": "TARGETS|CHILD_OF",
+  "object": "CWE-89|CAPEC-1",
+  "object_type": "Weakness|AttackPattern"
+}}
+
+ANTI-HALLUCINATION RULES:
+- ONLY extract CWE relationships if explicitly listed in weakness-related fields
+- ONLY extract parent CAPEC if explicitly stated in hierarchy fields
+- DO NOT infer or guess relationships
+
+OUTPUT: Valid JSON with keys: {{"id": "CAPEC-#", "name": "...", "details": "...", "severity": "...", "published_at": "...", "references": [...], "relationships": []}}
+The 'id' field MUST be the external_id (like CAPEC-1), NOT the STIX ID."""
     return _execute_specialist(raw_items, prompt, "capec")
 
 def run_central_normalizer(specialist_outputs, source_name):

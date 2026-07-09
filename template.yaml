@@ -7,12 +7,14 @@ Resources:
     Type: AWS::Serverless::LayerVersion
     Properties:
       LayerName: cti-dependencies-layer
-      Description: AI and Data processing libraries (Langchain, Pandas, etc.)
+      Description: AI and Data processing libraries (Langchain, Neo4j, etc.)
       ContentUri: cti_dependencies/
       CompatibleRuntimes:
         - python3.13
+      RetentionPolicy: Retain
     Metadata:
       BuildMethod: python3.13
+      BuildArchitecture: x86_64
   # GUARDRAIL 1: Create the Dead-Letter Queue (DLQ) first
   CtiFailedMessagesDLQ:
     Type: AWS::SQS::Queue
@@ -54,6 +56,12 @@ Resources:
           DB_NAME: "postgres"
           DB_USER: "cti_admin"
           DB_PASSWORD_PARAM: "CTI_DB_PASSWORD"
+
+          # Neo4j Aura Configuration (GraphRAG)
+          NEO4J_URI: "neo4j+s://118b96e0.databases.neo4j.io"
+          NEO4J_USERNAME: "118b96e0"
+          NEO4J_DATABASE: "118b96e0"
+          NEO4J_PASSWORD: "{{resolve:ssm:NEO4J_PASSWORD}}"
 
       Events:
         MySQSEvent:
