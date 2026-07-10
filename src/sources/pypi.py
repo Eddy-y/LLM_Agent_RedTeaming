@@ -17,11 +17,14 @@ We still store it as raw data and extract a single metadata item record.
 from __future__ import annotations
 
 from typing import Any
+from datetime import datetime, timezone
 
 import requests
 from tenacity import retry, wait_exponential, stop_after_attempt
 
-from utils import utc_now_iso
+def utc_now_iso() -> str:
+    """Returns current UTC time as ISO string."""
+    return datetime.now(timezone.utc).isoformat()
 
 
 PYPI_SOURCE = "pypi"

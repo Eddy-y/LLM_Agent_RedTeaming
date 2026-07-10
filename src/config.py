@@ -20,7 +20,7 @@ def _env(name: str, default: str | None = None) -> str | None:
 @dataclass(frozen=True)
 class Settings:
     data_dir: Path = Path(__file__).parent.parent / "data"  # Project root/data, not src/data
-    packages: tuple[str, ...] = ("numpy", "flask")
+    packages: tuple[str, ...] = ("numpy", "flask","FastAPI", "django", "pyyaml", "Tensorflow")
     github_token: str | None = _env("GITHUB_TOKEN")
     nvd_api_key: str | None = _env("NVD_API_KEY")
     aws_profile_name: str | None = _env("AWS_PROFILE_NAME")

@@ -117,6 +117,27 @@ python -m scripts.init_neo4j_schema
 
 ### Data Pipeline Operations
 
+**Database Cleanup (before re-ingestion)**
+```bash
+python scripts/cleanup_databases.py
+```
+- Truncates all threat intelligence tables in PostgreSQL
+- Resets pagination state to 0 for all sources
+- Provides Neo4j cleanup commands (manual execution required)
+- Requires explicit confirmation before deletion
+
+**Batch Ingestion (accumulate historical data)**
+```bash
+cd scripts
+python batch_ingestion.py --runs 50       # Run 50 ingestion cycles
+python batch_ingestion.py --runs 100 --pause 15  # Custom runs and pause duration
+```
+- Runs ingestion pipeline N times to accumulate historical records
+- **Per-package pagination:** Each (source, package) pair maintains independent offset state
+- Real-time monitoring: Shows record counts, pagination state, embedding coverage after each run
+- Graceful interrupt handling (Ctrl+C)
+- Estimated duration: 50 runs ≈ 17 minutes
+
 **Step 1: Ingest raw data to SQS queue**
 ```bash
 python scripts/ingest_to_sqs.py
@@ -125,6 +146,7 @@ python scripts/ingest_to_sqs.py
 - Queues messages for: PyPI, GitHub Advisories, NVD CVEs, MITRE ATT&CK, CAPEC
 - Stores raw payloads in `data/raw/<run_id>/`
 - **Deduplication:** Pre-LLM filtering skips already-processed canonical_ids (CVE-*, GHSA-*, etc.) to save Bedrock compute and prevent redundant database overwrites
+- **Per-package pagination:** NVD and GitHub maintain separate offsets for each package (numpy, flask, etc.)
 - PyPI metadata is always queued (no deduplication) to allow for updated package information
 
 **Step 2: Process queue with worker**
@@ -551,6 +573,26 @@ This approach eliminates LLM cost while providing deterministic, reproducible ve
 - Scrape status tracking: 'success', 'not_found', 'blocked', 'timeout', 'error'
 - Populated by `src/validators/summary_verifier.py` module
 - Columns: id, threat_intel_record_id, verified_at, source_url, scrape_status, scraped_content, http_status, keywords_llm, keywords_source, jaccard_score, fuzzy_score, combined_score, verdict, error_msg
+
+**pipeline_state** (pagination tracking):
+- Maintains incremental fetching state for all data sources
+- **Per-package schema:** Composite primary key `(source, package_name)`
+- Universal sources (MITRE, CAPEC): `package_name = 'Universal'`
+- Per-package sources (NVD, GitHub): `package_name = actual package name`
+- Enables independent pagination for each (source, package) pair
+- Auto-created on first access via upsert pattern
+- Columns: source, package_name, offset_value
+- Example state:
+  ```
+  source                | package_name    | offset_value
+  ----------------------|-----------------|-------------
+  mitre                 | Universal       | 250
+  capec                 | Universal       | 250
+  nvd                   | flask           | 1000
+  nvd                   | numpy           | 800
+  github_advisories     | flask           | 50
+  github_advisories     | numpy           | 45
+  ```
 
 **ingestion_logs**:
 - Tracks raw data fetching operations

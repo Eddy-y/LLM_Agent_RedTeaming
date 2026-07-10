@@ -18,7 +18,14 @@ from src.sources.github_advisories import fetch_github_advisories, GITHUB_SOURCE
 from src.sources.nvd import fetch_nvd_cves, NVD_SOURCE
 
 from scripts.fetchers import fetch_mitre_objects, fetch_capec_objects
-from scripts.state import load_state, advance_mitre_offset, advance_capec_offset
+from scripts.state import (
+    load_universal_state,
+    load_package_state,
+    advance_mitre_offset,
+    advance_capec_offset,
+    advance_nvd_offset,
+    advance_github_offset
+)
 from src.db import get_db_connection, release_db_connection
 
 import dotenv
@@ -158,27 +165,37 @@ def run_pipeline(packages: list[str] | None = None) -> str:
            
 def _run_universal_corpora(run_id: str):
     print("\n--- Processing Universal Corpora (MITRE & CAPEC) ---")
-    state = load_state()
+    state = load_universal_state()
 
     mitre_offset = state.get("mitre_offset", 0)
     mitre_data = fetch_mitre_objects(offset=mitre_offset, limit=5)
     if mitre_data and mitre_data.get("objects"):
-        new_mitre = filter_new_items(mitre_data["objects"], "Universal", "attack")
+        mitre_objects = mitre_data["objects"]
+        new_mitre = filter_new_items(mitre_objects, "Universal", "attack")
         if new_mitre:
             push_to_sqs(run_id, "Universal", "attack", new_mitre)
-            advance_mitre_offset(5)
+            print(f"    [SQS] Queued {len(new_mitre)} new MITRE objects")
         else:
-            print(f"    [INFO] All {len(mitre_data['objects'])} MITRE objects already exist")
+            print(f"    [INFO] All {len(mitre_objects)} MITRE objects already exist")
+
+        # Always advance offset to move forward in history (even if all duplicates)
+        advance_mitre_offset(len(mitre_objects))
+        print(f"    [STATE] Advanced MITRE offset by {len(mitre_objects)} (new offset: {mitre_offset + len(mitre_objects)})")
 
     capec_offset = state.get("capec_offset", 0)
     capec_data = fetch_capec_objects(offset=capec_offset, limit=5)
     if capec_data and capec_data.get("objects"):
-        new_capec = filter_new_items(capec_data["objects"], "Universal", "capec")
+        capec_objects = capec_data["objects"]
+        new_capec = filter_new_items(capec_objects, "Universal", "capec")
         if new_capec:
             push_to_sqs(run_id, "Universal", "capec", new_capec)
-            advance_capec_offset(5)
+            print(f"    [SQS] Queued {len(new_capec)} new CAPEC objects")
         else:
-            print(f"    [INFO] All {len(capec_data['objects'])} CAPEC objects already exist")
+            print(f"    [INFO] All {len(capec_objects)} CAPEC objects already exist")
+
+        # Always advance offset to move forward in history (even if all duplicates)
+        advance_capec_offset(len(capec_objects))
+        print(f"    [STATE] Advanced CAPEC offset by {len(capec_objects)} (new offset: {capec_offset + len(capec_objects)})")
 
 def _run_for_package(run_id: str, package: str, settings) -> None:
     print(f"\nRunning ingestion for package: {package}")
@@ -198,25 +215,57 @@ def _run_for_package(run_id: str, package: str, settings) -> None:
         # Push only the trimmed, high-value metadata string to the SQS queue
         push_to_sqs(run_id, package, PYPI_SOURCE, [cleaned_pypi_payload])
         
-    # Fetch GitHub Advisories
+    # Fetch GitHub Advisories with pagination
     if settings.github_token:
-        gh_status, gh_payload, gh_err, gh_end = fetch_github_advisories(package, github_token=settings.github_token, timeout_seconds=settings.http_timeout_seconds, user_agent=settings.user_agent)
+        github_offset = load_package_state(package, 'github_advisories')
+        print(f"    [GitHub] Fetching from page={github_offset}")
+
+        gh_status, gh_payload, gh_err, gh_end = fetch_github_advisories(
+            package,
+            github_token=settings.github_token,
+            timeout_seconds=settings.http_timeout_seconds,
+            user_agent=settings.user_agent,
+            start_page=github_offset,
+            max_items=20
+        )
         gh_path = _raw_path_for(settings.data_dir, run_id, package, GITHUB_SOURCE)
+
         if gh_payload:
             write_json(gh_path, gh_payload)
-            # Extract nodes array from payload structure: {"package": "...", "nodes": [...]}
             nodes = gh_payload.get("nodes", [])
+
             # Deduplicate before queuing
             new_advisories = filter_new_items(nodes, package, GITHUB_SOURCE)
+
             if new_advisories:
                 push_to_sqs(run_id, package, GITHUB_SOURCE, new_advisories)
+                print(f"    [SQS] Queued {len(new_advisories)} new GitHub advisories")
             else:
                 print(f"    [INFO] All {len(nodes)} GitHub advisories already exist for: {package}")
+
+            # Advance state if we got results
+            if len(nodes) > 0:
+                advance_github_offset(package, 1)
+                print(f"    [STATE] Advanced GitHub page offset by 1 for {package} (new page: {github_offset + 1})")
+
+                pagination_meta = gh_payload.get("_pagination_meta", {})
+                if pagination_meta.get("has_more_pages"):
+                    print(f"    [INFO] GitHub has more pages available for {package}")
         else:
             print(f"    [WARN] GitHub Advisories fetch failed for {package}. Status: {gh_status} | Error: {gh_err}")
 
-    # Fetch NVD CVEs
-    nvd_status, nvd_payload, nvd_err, nvd_end = fetch_nvd_cves(package, api_key=settings.nvd_api_key, timeout_seconds=settings.http_timeout_seconds, user_agent=settings.user_agent)
+    # Fetch NVD CVEs with pagination
+    nvd_offset = load_package_state(package, 'nvd')
+    print(f"    [NVD] Fetching from startIndex={nvd_offset}")
+
+    nvd_status, nvd_payload, nvd_err, nvd_end = fetch_nvd_cves(
+        package,
+        api_key=settings.nvd_api_key,
+        timeout_seconds=settings.http_timeout_seconds,
+        user_agent=settings.user_agent,
+        start_index=nvd_offset,
+        results_per_page=20
+    )
     nvd_path = _raw_path_for(settings.data_dir, run_id, package, NVD_SOURCE)
 
     if nvd_payload:
@@ -233,10 +282,22 @@ def _run_for_package(run_id: str, package: str, settings) -> None:
                     cve_id = item.get("cve", {}).get("id", "")
                     item["verified_source_url"] = f"https://nvd.nist.gov/vuln/detail/{cve_id}" if cve_id else "https://nvd.nist.gov"
 
-                print(f"    [SQS] Queuing {len(new_vulns)} new items for nvd processing...")
+                print(f"    [SQS] Queuing {len(new_vulns)} new NVD items for processing...")
                 push_to_sqs(run_id, package, NVD_SOURCE, new_vulns)
+
+                # Advance state after successful processing
+                advance_nvd_offset(package, len(vulns))
+                print(f"    [STATE] Advanced NVD offset by {len(vulns)} for {package} (new offset: {nvd_offset + len(vulns)})")
             else:
                 print(f"    [INFO] All {len(vulns)} NVD records already exist for: {package}")
+                # Still advance offset even if all duplicates (move forward in history)
+                advance_nvd_offset(package, len(vulns))
+                print(f"    [STATE] Advanced NVD offset by {len(vulns)} for {package} (all duplicates)")
+
+            # Check if there are more pages
+            pagination_meta = nvd_payload.get("_pagination_meta", {})
+            if pagination_meta.get("has_more_pages"):
+                print(f"    [INFO] NVD has more pages available for {package}")
         else:
             print(f"    [INFO] NVD returned 0 active CVE records for: {package}")
     else:

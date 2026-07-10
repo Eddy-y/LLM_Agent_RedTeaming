@@ -11,11 +11,15 @@ This requires a GitHub token:
 from __future__ import annotations
 
 from typing import Any
+import time
+from datetime import datetime, timezone
 
 import requests
 from tenacity import retry, wait_exponential, stop_after_attempt
 
-from utils import utc_now_iso
+def utc_now_iso() -> str:
+    """Returns current UTC time as ISO string."""
+    return datetime.now(timezone.utc).isoformat()
 
 
 GITHUB_SOURCE = "github_advisories"
@@ -65,9 +69,12 @@ def fetch_github_advisories(
     user_agent: str,
     page_size: int = 50,
     max_pages: int = 5,
+    start_page: int = 0,
+    max_items: int = 20,
 ) -> tuple[int | None, dict[str, Any] | None, str | None, str]:
     """
     Paginates through vulnerabilities and extracts the unique advisories.
+    NEW: Supports incremental fetching by starting from a specific page and limiting items.
     """
     endpoint = GRAPHQL_ENDPOINT
     headers = {
@@ -78,15 +85,24 @@ def fetch_github_advisories(
     query = _build_query()
     after = None
     unique_advisories: dict[str, dict] = {}
+    current_page = 0
+    items_fetched = 0
+    has_next_page = False
 
     try:
-        for _ in range(max_pages):
+        # Pagination loop with item limit
+        while items_fetched < max_items:
             variables = {
                 "ecosystem": "PIP",
                 "package": package,
                 "first": page_size,
                 "after": after,
             }
+
+            # Rate limiting (skip on first request)
+            if current_page > 0:
+                time.sleep(2)
+
             resp = requests.post(
                 endpoint,
                 headers=headers,
@@ -119,20 +135,38 @@ def fetch_github_advisories(
 
             vuln_data = (((data.get("data") or {}).get("securityVulnerabilities") or {}))
             nodes = vuln_data.get("nodes") or []
-            
-            for node in nodes:
-                advisory = node.get("advisory")
-                if advisory:
-                    ghsa_id = advisory.get("ghsaId")
-                    if ghsa_id:
-                        unique_advisories[ghsa_id] = advisory
+
+            # Only process if we've reached the start_page
+            if current_page >= start_page:
+                for node in nodes:
+                    advisory = node.get("advisory")
+                    if advisory:
+                        ghsa_id = advisory.get("ghsaId")
+                        if ghsa_id and ghsa_id not in unique_advisories:
+                            unique_advisories[ghsa_id] = advisory
+                            items_fetched += 1
+                            if items_fetched >= max_items:
+                                break
 
             page_info = vuln_data.get("pageInfo") or {}
-            if not page_info.get("hasNextPage"):
-                break
-            after = page_info.get("endCursor")
+            has_next_page = page_info.get("hasNextPage", False)
 
-        payload = {"package": package, "nodes": list(unique_advisories.values())}
+            if not has_next_page:
+                break
+
+            after = page_info.get("endCursor")
+            current_page += 1
+
+        payload = {
+            "package": package,
+            "nodes": list(unique_advisories.values()),
+            "_pagination_meta": {
+                "start_page": start_page,
+                "items_fetched": items_fetched,
+                "last_page_reached": current_page,
+                "has_more_pages": has_next_page
+            }
+        }
         return 200, payload, None, endpoint
 
     except requests.exceptions.HTTPError as e:
