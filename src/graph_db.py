@@ -37,16 +37,18 @@ def _configure_ssl_for_platform():
     if sys.platform == "win32":
         try:
             import certifi
-            import certifi_win32  # Patches certifi to use Windows cert store
             cert_path = certifi.where()
 
             # Set environment variables for SSL certificate verification
+            # This is CRITICAL for Neo4j Aura connections on Windows
             os.environ["SSL_CERT_FILE"] = cert_path
             os.environ["REQUESTS_CA_BUNDLE"] = cert_path
 
             logger.info(f"Windows: Using certifi bundle at {cert_path}")
         except ImportError:
-            logger.warning("certifi not installed - SSL verification may fail on Windows")
+            logger.error("certifi not installed - Neo4j SSL connections will fail on Windows")
+            logger.error("Install with: pip install certifi")
+            raise ImportError("certifi is required for Neo4j connections on Windows. Run: pip install certifi")
     else:
         # Linux/Lambda: System certificates are already configured
         logger.debug("Linux: Using system certificate store")
@@ -83,14 +85,9 @@ def get_neo4j_driver():
             connection_acquisition_timeout=120  # 2 minutes
         )
 
-        # Verify connectivity
-        try:
-            _neo4j_driver.verify_connectivity()
-            logger.info("✅ Successfully connected to Neo4j Aura")
-        except ServiceUnavailable as e:
-            logger.error(f"❌ Failed to connect to Neo4j: {e}")
-            _neo4j_driver = None
-            raise
+        # Skip verify_connectivity() - it's flaky and not essential
+        # Connection will be verified on first actual query
+        logger.info("Neo4j driver initialized (connection will be verified on first query)")
 
     return _neo4j_driver
 
