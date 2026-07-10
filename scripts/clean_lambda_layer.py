@@ -68,7 +68,10 @@ def main():
 
     # Step 2: Install dependencies
     print("\n[2/5] Installing runtime dependencies...")
+    # Try minimal first, fallback to lambda
     requirements_file = deps_dir / "requirements.txt"
+    if not requirements_file.exists():
+        requirements_file = deps_dir / "requirements-lambda.txt"
 
     if not requirements_file.exists():
         print(f"Error: {requirements_file} not found!")
@@ -173,12 +176,12 @@ def main():
 
     # Check if we're under AWS Lambda layer limits
     if final_size > 250:
-        print("\n⚠️  WARNING: Layer size exceeds 250 MB unzipped limit!")
+        print("\n[!] WARNING: Layer size exceeds 250 MB unzipped limit!")
         print("   Consider removing more dependencies or splitting the layer.")
     elif final_size > 200:
-        print("\n⚠️  WARNING: Layer size is close to 250 MB limit.")
+        print("\n[!] WARNING: Layer size is close to 250 MB limit.")
     else:
-        print("\n✅ Layer size is within AWS Lambda limits.")
+        print("\n[OK] Layer size is within AWS Lambda limits.")
 
     print("=" * 60)
     print("Cleanup complete!")

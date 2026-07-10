@@ -619,9 +619,12 @@ LLM_Agent_RedTeaming/
    - Uses absolute imports: `from src.db import ...`
 
 3. **`cti_dependencies/` = Lambda layer**
-   - `requirements-lambda.txt`: Minimal deps for Lambda (6 packages, ~10 MB)
-   - `requirements.txt`: Full deps for local dev (14 packages, ~40 MB)
-   - See `scripts/clean_lambda_layer.py` for layer optimization
+   - **`requirements.txt`**: Ultra-minimal Lambda deps (3 packages: neo4j, psycopg2-binary, pydantic, ~20 MB)
+     - Used by SAM build and `scripts/clean_lambda_layer.py`
+   - **`requirements-full.txt`**: Complete local dev environment (14 packages, ~130 MB)
+     - Includes langchain, langgraph for LangGraph workflow
+     - Use for local development with `pip install -r cti_dependencies/requirements-full.txt`
+
 
 ## AWS Profile Configuration
 
