@@ -59,32 +59,49 @@ def semantic_vector_search(query: str, limit: int = 5):
         release_db_connection(conn)
 
 
-def graph_traversal_search(entity_id: str, max_hops: int = 2):
+def graph_traversal_search(entity_id: str, max_hops: int = 1):
     """
-    Perform multi-hop graph traversal starting from a seed entity.
-    Returns all connected nodes within max_hops distance using Neo4j.
+    Perform focused graph traversal starting from a seed entity.
+    Only traverses EXPLOITS relationships to find related weaknesses (CWE).
+    Limited to 1 hop to reduce noise from unrelated packages.
     """
     from src.graph_db import get_neo4j_session
 
     try:
         with get_neo4j_session() as session:
-            # Cypher doesn't allow parameterized range in relationship patterns
-            # So we use string formatting (safe since max_hops is always an int)
+            # Focused traversal: only follow EXPLOITS to find CWE weaknesses
+            # This avoids cross-contamination through Package nodes
             query = f"""
             MATCH (seed)
             WHERE seed.canonical_id = $entity_id OR seed.name = $entity_id
 
-            MATCH path = (seed)-[r:AFFECTS|EXPLOITS|ENABLES|IMPLEMENTS|MITIGATES*1..{max_hops}]-(connected)
+            // Only traverse EXPLOITS relationships (Vulnerability -> Weakness)
+            MATCH path = (seed)-[r:EXPLOITS*1..{max_hops}]-(connected:Weakness)
 
             WITH DISTINCT connected AS node
             RETURN
                 labels(node)[0] AS node_type,
-                COALESCE(node.canonical_id, node.name) AS id,
+                COALESCE(node.canonical_id, node.cwe_id, node.name) AS id,
                 node.name AS name,
-                node.summary AS summary,
-                node.severity AS severity,
-                node.source AS source
-            LIMIT 50
+                node.description AS summary,
+                null AS severity,
+                'neo4j_graph' AS source
+            LIMIT 20
+
+            UNION
+
+            // Also find other vulnerabilities that exploit the same weaknesses
+            MATCH (seed)-[:EXPLOITS]->(w:Weakness)<-[:EXPLOITS]-(related:Vulnerability)
+            WHERE (seed.canonical_id = $entity_id OR seed.name = $entity_id)
+              AND related.canonical_id <> seed.canonical_id
+            RETURN
+                labels(related)[0] AS node_type,
+                related.canonical_id AS id,
+                related.name AS name,
+                related.summary AS summary,
+                related.severity AS severity,
+                related.source AS source
+            LIMIT 20
             """
 
             result = session.run(query, entity_id=entity_id)
@@ -130,13 +147,20 @@ def hybrid_retrieval(query: str, package_name: str = None):
     # Parse the text results back into dict format for consistency
     # (Keeping backward compatibility with existing text-based return)
 
-    # 3. Graph traversal (if we found any seed entities)
-    seed_ids = [r["canonical_id"] for r in all_results if r.get("canonical_id")]
-    print(f"🕸️  Graph Traversal (Neo4j): Using {len(seed_ids[:2])} seed entities")
-    for seed_id in seed_ids[:2]:  # Limit to top 2 seeds to avoid explosion
+    # 3. Graph traversal (focused on top seed only to reduce noise)
+    # Only use CVE/GHSA seeds (skip Package nodes to avoid cross-contamination)
+    seed_ids = [
+        r["canonical_id"] for r in all_results
+        if r.get("canonical_id") and (
+            r["canonical_id"].startswith("CVE-") or
+            r["canonical_id"].startswith("GHSA-")
+        )
+    ]
+    print(f"🕸️  Graph Traversal (Neo4j): Using top {min(1, len(seed_ids))} CVE seed")
+    for seed_id in seed_ids[:1]:  # Only use the top-ranked CVE
         try:
-            graph_results = graph_traversal_search(seed_id, max_hops=2)
-            print(f"  Seed '{seed_id}': Found {len(graph_results)} connected nodes")
+            graph_results = graph_traversal_search(seed_id, max_hops=1)
+            print(f"  Seed '{seed_id}': Found {len(graph_results)} related vulnerabilities via shared CWEs")
             all_results.extend(graph_results)
         except Exception as e:
             print(f"⚠️ Graph traversal for {seed_id} failed: {e}")
