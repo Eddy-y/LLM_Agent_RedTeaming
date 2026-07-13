@@ -120,6 +120,22 @@ def validate_relationship_triple(triple: Dict[str, Any]) -> bool:
             logger.debug(f"Invalid CAPEC ID format: {subject}")
             return False
 
+    # Package validation (allow any non-empty string for package names)
+    if triple["object_type"] == "Package":
+        if not object_val or len(object_val.strip()) == 0:
+            print(f"[VALIDATION] ❌ Empty package name: {triple}")
+            logger.debug(f"Empty package name in relationship: {triple}")
+            return False
+        # Package names are valid (e.g., "tensorflow", "django", "flask")
+        print(f"[VALIDATION] ✅ Package validated: {object_val}")
+
+    if triple["subject_type"] == "Package":
+        if not subject or len(subject.strip()) == 0:
+            print(f"[VALIDATION] ❌ Empty package name: {triple}")
+            logger.debug(f"Empty package name in relationship: {triple}")
+            return False
+        print(f"[VALIDATION] ✅ Package validated: {subject}")
+
     # Validate predicate is in allowed set
     allowed_predicates = {
         "EXPLOITS", "AFFECTS", "ENABLES", "IMPLEMENTS", "TARGETS",
@@ -127,9 +143,11 @@ def validate_relationship_triple(triple: Dict[str, Any]) -> bool:
         "DEPENDS_ON", "HAS_VULNERABILITY", "REFERENCED_BY", "RELATED_TO"
     }
     if triple["predicate"] not in allowed_predicates:
+        print(f"[VALIDATION] ❌ Invalid predicate '{triple['predicate']}', allowed: {allowed_predicates}")
         logger.debug(f"Invalid predicate: {triple['predicate']}")
         return False
 
+    print(f"[VALIDATION] ✅ Relationship passed all checks: {subject} -{triple['predicate']}-> {object_val}")
     return True
 
 
@@ -179,10 +197,36 @@ def extract_graph_entities(
 
     logger.info(f"Extracted {len(nodes)} nodes from normalized records")
 
+    # Track nodes we've already created to avoid duplicates
+    existing_node_ids = {(node["type"], tuple(node["properties"].items())) for node in nodes}
+
     # Extract relationships with validation
+    print(f"[GRAPH EXTRACTOR] Processing {len(relationships)} raw relationships")
+    logger.info(f"[GRAPH DEBUG] Processing {len(relationships)} raw relationships")
     validated_count = 0
     for rel in relationships:
-        if validate_relationship_triple(rel):
+        is_valid = validate_relationship_triple(rel)
+        if is_valid:
+            # Create stub nodes for relationship targets (CWE, Package, etc.) if they don't exist
+            # This ensures MATCH will find them in Neo4j
+            for node_role in ['subject', 'object']:
+                node_type = rel[f"{node_role}_type"]
+                node_id_value = rel[node_role]
+                id_field = get_id_field(node_type)
+
+                # Create minimal stub node for relationship targets
+                stub_node = {
+                    "type": node_type,
+                    "properties": {id_field: node_id_value}
+                }
+
+                # Check if we already have this node
+                node_key = (node_type, (id_field, node_id_value))
+                if node_key not in existing_node_ids:
+                    nodes.append(stub_node)
+                    existing_node_ids.add(node_key)
+                    print(f"[GRAPH EXTRACTOR] Created stub node: {node_type}:{id_field}={node_id_value}")
+
             edge = {
                 "type": rel["predicate"],
                 "from_node": {
@@ -199,9 +243,14 @@ def extract_graph_entities(
             }
             edges.append(edge)
             validated_count += 1
+            print(f"[GRAPH EXTRACTOR] ✅ Valid edge: {rel['subject']} -{rel['predicate']}-> {rel['object']}")
+            logger.info(f"[GRAPH DEBUG] Valid edge: {rel['subject']} -{rel['predicate']}-> {rel['object']}")
         else:
+            print(f"[GRAPH EXTRACTOR] ❌ Rejected: {rel}")
             logger.warning(f"Rejected invalid relationship triple: {rel}")
 
+    print(f"[GRAPH EXTRACTOR] Validated {validated_count}/{len(relationships)} relationship triples")
+    print(f"[GRAPH EXTRACTOR] Total nodes (including stubs): {len(nodes)}")
     logger.info(f"Validated {validated_count}/{len(relationships)} relationship triples")
 
     return {

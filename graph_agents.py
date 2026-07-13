@@ -68,11 +68,13 @@ def graph_traversal_search(entity_id: str, max_hops: int = 2):
 
     try:
         with get_neo4j_session() as session:
-            query = """
+            # Cypher doesn't allow parameterized range in relationship patterns
+            # So we use string formatting (safe since max_hops is always an int)
+            query = f"""
             MATCH (seed)
             WHERE seed.canonical_id = $entity_id OR seed.name = $entity_id
 
-            MATCH path = (seed)-[r:AFFECTS|EXPLOITS|ENABLES|IMPLEMENTS|MITIGATES*1..$max_hops]-(connected)
+            MATCH path = (seed)-[r:AFFECTS|EXPLOITS|ENABLES|IMPLEMENTS|MITIGATES*1..{max_hops}]-(connected)
 
             WITH DISTINCT connected AS node
             RETURN
@@ -85,7 +87,7 @@ def graph_traversal_search(entity_id: str, max_hops: int = 2):
             LIMIT 50
             """
 
-            result = session.run(query, entity_id=entity_id, max_hops=max_hops)
+            result = session.run(query, entity_id=entity_id)
 
             return [
                 {
@@ -110,22 +112,31 @@ def hybrid_retrieval(query: str, package_name: str = None):
     """
     all_results = []
 
+    print("\n" + "-"*80)
+    print(f"🔍 HYBRID RETRIEVAL DEBUG - Query: '{query}'")
+    print("-"*80)
+
     # 1. Semantic vector search (if embeddings available)
     vector_results = semantic_vector_search(query, limit=3)
-    for r in vector_results:
+    print(f"📊 Vector Search (PostgreSQL pgvector): {len(vector_results)} results")
+    for i, r in enumerate(vector_results, 1):
+        print(f"  {i}. {r.get('canonical_id', 'N/A')} (similarity: {r.get('similarity', 0):.3f})")
         r["retrieval_method"] = "vector_search"
     all_results.extend(vector_results)
 
     # 2. Full-text search (existing logic)
     text_results = fetch_semantic_cti_data(query)
+    print(f"📝 Full-text Search (PostgreSQL tsvector): {len(text_results.split('ID:'))-1 if 'ID:' in text_results else 0} results")
     # Parse the text results back into dict format for consistency
     # (Keeping backward compatibility with existing text-based return)
 
     # 3. Graph traversal (if we found any seed entities)
     seed_ids = [r["canonical_id"] for r in all_results if r.get("canonical_id")]
+    print(f"🕸️  Graph Traversal (Neo4j): Using {len(seed_ids[:2])} seed entities")
     for seed_id in seed_ids[:2]:  # Limit to top 2 seeds to avoid explosion
         try:
             graph_results = graph_traversal_search(seed_id, max_hops=2)
+            print(f"  Seed '{seed_id}': Found {len(graph_results)} connected nodes")
             all_results.extend(graph_results)
         except Exception as e:
             print(f"⚠️ Graph traversal for {seed_id} failed: {e}")
@@ -139,6 +150,9 @@ def hybrid_retrieval(query: str, package_name: str = None):
         if key and key not in seen:
             seen.add(key)
             deduplicated.append(r)
+
+    print(f"✅ Total unique results after deduplication: {len(deduplicated)}")
+    print("-"*80 + "\n")
 
     # Build report string (maintain backward compatibility)
     report = f"Hybrid Search Results ({len(deduplicated)} unique entities):\n\n"
@@ -228,6 +242,15 @@ def build_red_team_graph(llm):
             print(f"⚠️ Hybrid retrieval failed, falling back to full-text: {e}")
             raw_cti_data = fetch_semantic_cti_data(state['package_name'])
 
+        # 🔍 DEBUG: Log what data is being passed to analyzer
+        print("\n" + "="*80)
+        print(f"📊 RESEARCHER NODE OUTPUT (Data sent to Analyzer)")
+        print("="*80)
+        print(f"Package: {state['package_name']}")
+        print(f"Data length: {len(str(raw_cti_data))} characters")
+        print(f"\n{raw_cti_data}")
+        print("="*80 + "\n")
+
         context_msg = HumanMessage(
             content=f"Here is the database context found for this query:\n{str(raw_cti_data)}",
             name="context_retrieval"
@@ -241,9 +264,9 @@ def build_red_team_graph(llm):
 
     def analyzer_node(state):
         t0 = time.time()
-        analyzer_prompt = SystemMessage(content="""You are an expert Cyber Threat Intelligence Analyst. 
+        analyzer_prompt = SystemMessage(content="""You are an expert Cyber Threat Intelligence Analyst.
         Evaluate the provided security records.
-        
+
         Task:
         1. You must isolate and include the exact source reference URLs provided in the raw context. Do not invent links.
         2. For every vulnerability or threat pattern you find, you MUST explicitly include its authentic source reference URL exactly as provided in the context data.
@@ -252,20 +275,29 @@ def build_red_team_graph(llm):
             1. weakness being exploited
             2. the goal of the attackers
             3. the potential impact of the vulnerability
-            4. defense controls that could mitigate the threat 
-            
+            4. defense controls that could mitigate the threat
+
         Format your response beautifully using Markdown headings, bullet points, and bold text so it displays cleanly in the UI.""")
-        
+
         # 🛡️ Safe Class-Based Filtering (Bypasses the NoneType property bug entirely)
         clean_history = []
         for m in state.get('messages', []):
             if isinstance(m, (HumanMessage, AIMessage, SystemMessage)):
                 clean_history.append(m)
-        
+
+        # 🔍 DEBUG: Log what analyzer node receives as input
+        db_context = "\n".join([m.content for m in clean_history if getattr(m, 'name', '') == "context_retrieval"])
+        print("\n" + "="*80)
+        print(f"🤖 ANALYZER NODE INPUT (Data received from Researcher)")
+        print("="*80)
+        print(f"Number of messages in history: {len(clean_history)}")
+        print(f"Context data length: {len(db_context)} characters")
+        print(f"\nContext content:\n{db_context}")
+        print("="*80 + "\n")
+
         # Invoke your Amazon Bedrock instance
         raw_response = llm.invoke([analyzer_prompt] + clean_history).content
         print(f"Agent LLM Raw Response: {raw_response}")
-        db_context = "\n".join([m.content for m in clean_history if getattr(m, 'name', '') == "context_retrieval"])
         
         final_content = str(raw_response)
 

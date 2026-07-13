@@ -55,6 +55,13 @@ def lambda_handler(event, context):
                     if isinstance(output, dict) and "relationships" in output:
                         raw_relationships.extend(output.get("relationships", []))
 
+                # DEBUG: Log relationship extraction
+                logger.info(f"[GRAPH DEBUG] Source: {source}, Specialist outputs: {len(specialist_output)}, Relationships extracted: {len(raw_relationships)}")
+                if raw_relationships:
+                    logger.info(f"[GRAPH DEBUG] Sample relationships: {raw_relationships[:3]}")
+                else:
+                    logger.warning(f"[GRAPH DEBUG] No relationships found in specialist output from {source}")
+
                 # Normalize data (existing functionality)
                 normalized_data = run_central_normalizer(specialist_output, source)
 

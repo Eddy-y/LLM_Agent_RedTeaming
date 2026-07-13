@@ -206,8 +206,11 @@ def insert_graph_batch(session: Session, graph_data: Dict[str, List[Dict[str, An
 
         # Insert relationships (must be done after nodes exist)
         if graph_data.get("relationships"):
+            print(f"[NEO4J] Attempting to insert {len(graph_data['relationships'])} relationships")
             for rel in graph_data["relationships"]:
                 try:
+                    print(f"[NEO4J] Creating edge: {rel['from_node']['id_value']} -{rel['type']}-> {rel['to_node']['id_value']}")
+
                     # Build dynamic MERGE query based on relationship type
                     # Safe - relationship types validated in graph_extractor.py
                     rel_query = f"""
@@ -225,11 +228,18 @@ def insert_graph_batch(session: Session, graph_data: Dict[str, List[Dict[str, An
                         properties=rel.get('properties', {})
                     )
 
-                    if result.single():
+                    record = result.single()
+                    if record:
                         rels_created += 1
+                        print(f"[NEO4J] ✅ Edge created successfully")
+                    else:
+                        print(f"[NEO4J] ❌ Edge creation returned no result (likely nodes don't exist)")
+                        print(f"[NEO4J]    from: {rel['from_node']['type']}:{rel['from_node']['id_field']}={rel['from_node']['id_value']}")
+                        print(f"[NEO4J]    to: {rel['to_node']['type']}:{rel['to_node']['id_field']}={rel['to_node']['id_value']}")
 
                 except Exception as e:
                     # Log relationship errors but don't fail entire batch
+                    print(f"[NEO4J] ❌ Exception creating edge: {e}")
                     logger.warning(
                         f"Failed to create relationship {rel['from_node']['id_value']} "
                         f"-[{rel['type']}]-> {rel['to_node']['id_value']}: {e}"
