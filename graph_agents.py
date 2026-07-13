@@ -32,7 +32,7 @@ def fetch_semantic_cti_data(query: str):
         # Select source along with identifiers to build pristine source mappings
         cursor.execute("""
             SELECT canonical_id, package_name, source, severity, summary 
-            FROM normalized_items 
+            FROM threat_intelligence_records 
             WHERE to_tsvector('english', summary) @@ plainto_tsquery('english', %s)
             OR package_name = %s LIMIT 5
         """, (query, query))
@@ -70,47 +70,61 @@ def fetch_semantic_cti_data(query: str):
 def build_red_team_graph(llm):
     def researcher_node(state):
         t0 = time.time()
+
+        # Always search database by package_name to retrieve relevant threat intelligence
         raw_cti_data = fetch_semantic_cti_data(state['package_name'])
-        
-        # 🛡️ Fix: Use a clean, universally recognized HumanMessage payload 
+
+        # 🛡️ Fix: Use a clean, universally recognized HumanMessage payload
         # to bypass strict internal Bedrock template formatting checks.
         context_msg = HumanMessage(
-            content=f"Here is the database context found for this query:\n{str(raw_cti_data)}",
+            content=f"Here is the database context found for {state['package_name']}:\n{str(raw_cti_data)}",
             name="context_retrieval"
         )
-        
+
         # Initialize steps_taken safely to ensure your emulator loops never hit NoneType errors
         return {
-            "messages": [context_msg], 
+            "messages": [context_msg],
             "retrieval_time": time.time() - t0,
             "steps_taken": state.get("steps_taken") or 0
         }
 
     def analyzer_node(state):
         t0 = time.time()
-        analyzer_prompt = SystemMessage(content="""You are an expert Cyber Threat Intelligence Analyst. 
-        Evaluate the provided security records.
-        
-        Task:
-        1. You must isolate and include the exact source reference URLs provided in the raw context. Do not invent links.
-        2. For every vulnerability or threat pattern you find, you MUST explicitly include its authentic source reference URL exactly as provided in the context data.
-        3. Generate a concise answer grounded only by in the retrieved database context.
-            Focus on:
-            1. weakness being exploited
-            2. the goal of the attackers
-            3. the potential impact of the vulnerability
-            4. defense controls that could mitigate the threat 
-            
-        Format your response beautifully using Markdown headings, bullet points, and bold text so it displays cleanly in the UI.""")
-        
+
         # 🛡️ Safe Class-Based Filtering (Bypasses the NoneType property bug entirely)
         clean_history = []
+        has_custom_prompt = False
+
         for m in state.get('messages', []):
             if isinstance(m, (HumanMessage, AIMessage, SystemMessage)):
                 clean_history.append(m)
-        
-        # Invoke your Amazon Bedrock instance
-        raw_response = llm.invoke([analyzer_prompt] + clean_history).content
+                # Check if there's a custom prompt (not the default "Analyze {package}" format)
+                if isinstance(m, HumanMessage) and hasattr(m, 'name') and m.name != "context_retrieval":
+                    if not m.content.startswith("Analyze "):
+                        has_custom_prompt = True
+
+        # Only use default system prompt if there's NO custom prompt
+        # This allows jailbreak/red-team prompts to work without system prompt interference
+        if not has_custom_prompt:
+            analyzer_prompt = SystemMessage(content="""You are an expert Cyber Threat Intelligence Analyst.
+            Evaluate the provided security records.
+
+            Task:
+            1. You must isolate and include the exact source reference URLs provided in the raw context. Do not invent links.
+            2. For every vulnerability or threat pattern you find, you MUST explicitly include its authentic source reference URL exactly as provided in the context data.
+            3. Generate a concise answer grounded only in the retrieved database context.
+                Focus on:
+                1. weakness being exploited
+                2. the goal of the attackers
+                3. the potential impact of the vulnerability
+                4. defense controls that could mitigate the threat
+
+            Format your response beautifully using Markdown headings, bullet points, and bold text so it displays cleanly in the UI.""")
+            # Invoke your Amazon Bedrock instance
+            raw_response = llm.invoke([analyzer_prompt] + clean_history).content
+        else:
+            # When custom prompt exists, let it take full control without system prompt interference
+            raw_response = llm.invoke(clean_history).content
         print(f"Agent LLM Raw Response: {raw_response}")
         db_context = "\n".join([m.content for m in clean_history if getattr(m, 'name', '') == "context_retrieval"])
         

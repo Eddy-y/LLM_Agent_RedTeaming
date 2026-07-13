@@ -57,7 +57,7 @@ def insert_normalized_batch(conn, run_id, package_name, rows):
     if not valid_rows: return
 
     query = """
-        INSERT INTO normalized_items 
+        INSERT INTO threat_intelligence_records 
           (run_id, package_name, source, record_type, canonical_id, title, summary, severity, published_at, references_json)
         VALUES %s
         ON CONFLICT (canonical_id, package_name) 
@@ -84,7 +84,7 @@ def insert_normalized_batch(conn, run_id, package_name, rows):
 def log_audit_event(conn, log_entry: dict):
     with conn.cursor() as cur:
         cur.execute("""
-            INSERT INTO audit_logs (timestamp, file_origin, agent_name, hallucination_detected, hallucination_reason, url_validation_json)
+            INSERT INTO url_validation_logs (timestamp, file_origin, agent_name, hallucination_detected, hallucination_reason, url_validation_json)
             VALUES (%s, %s, %s, %s, %s, %s)
         """, (
             log_entry["timestamp"], log_entry["file_origin"], log_entry["agent_name"],

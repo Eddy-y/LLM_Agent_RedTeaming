@@ -15,14 +15,14 @@ def provision_database():
             cur.execute("CREATE EXTENSION IF NOT EXISTS vector;")
             
             cur.execute("""
-                CREATE TABLE IF NOT EXISTS fetch_log (
+                CREATE TABLE IF NOT EXISTS ingestion_logs (
                   id SERIAL PRIMARY KEY, run_id TEXT NOT NULL, package_name TEXT NOT NULL,
                   source TEXT NOT NULL, endpoint TEXT NOT NULL, fetched_at_utc TEXT NOT NULL,
                   http_status INTEGER, error TEXT, raw_path TEXT NOT NULL
                 );
             """)
             cur.execute("""
-                CREATE TABLE IF NOT EXISTS normalized_items (
+                CREATE TABLE IF NOT EXISTS threat_intelligence_records (
                   id SERIAL PRIMARY KEY, run_id TEXT NOT NULL, package_name TEXT NOT NULL,
                   source TEXT NOT NULL, record_type TEXT NOT NULL, canonical_id TEXT,
                   title TEXT, summary TEXT, severity TEXT, published_at TEXT,
@@ -31,7 +31,7 @@ def provision_database():
                 );
             """)
             cur.execute("""
-                CREATE TABLE IF NOT EXISTS evaluation_metrics (
+                CREATE TABLE IF NOT EXISTS graph_execution_metrics (
                     id SERIAL PRIMARY KEY, evaluated_at TIMESTAMP NOT NULL,
                     package_target VARCHAR(255) NOT NULL, retrieval_latency_sec REAL,
                     analysis_latency_sec REAL, total_latency_sec REAL,
@@ -40,10 +40,14 @@ def provision_database():
                 );
             """)
             cur.execute("""
-                CREATE TABLE IF NOT EXISTS audit_logs (
-                    id SERIAL PRIMARY KEY, timestamp TIMESTAMP NOT NULL,
-                    file_origin TEXT, agent_name TEXT, hallucination_detected BOOLEAN,
-                    hallucination_reason TEXT, url_validation_json TEXT
+                CREATE TABLE IF NOT EXISTS url_validation_logs (
+                    id SERIAL PRIMARY KEY,
+                    timestamp TIMESTAMP NOT NULL,
+                    file_origin VARCHAR(255),
+                    agent_name VARCHAR(100),
+                    hallucination_detected BOOLEAN,
+                    hallucination_reason TEXT,
+                    url_validation_json TEXT
                 );
             """)
         conn.commit()

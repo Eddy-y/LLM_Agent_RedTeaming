@@ -1,17 +1,23 @@
 import os
 import json
 import requests
+import pandas as pd
+from src.db import get_db_connection
 import streamlit as st
 
 # Setup page layout (Strictly flat and professional, no gradients)
 st.set_page_config(page_title="CTI Analytics & Sandbox", layout="wide")
 st.title("🛡️ Cyber Threat Intelligence Platform")
 
-# Sidebar navigation
-view = st.sidebar.radio("Navigation Views", ["Red-Team Sandbox Terminal", "Threat Matrix", "Audit logs"])
+# Sidebar navigation - Updated to include your paper's experimental metrics dashboard
+view = st.sidebar.radio(
+    "Navigation Views", 
+    ["Red-Team Sandbox Terminal", "Threat Matrix", "Audit logs", "Research Metrics"]
+)
 
 # Base FastAPI Endpoint URL
 API_BASE_URL = "http://localhost:8000"
+
 
 # --- VIEW 1: RED-TEAM SANDBOX TERMINAL ---
 if view == "Red-Team Sandbox Terminal":
@@ -58,6 +64,7 @@ if view == "Red-Team Sandbox Terminal":
         else:
             st.info("Enter a package name and click 'Deploy Agent' to witness the LangGraph trace execution.")
 
+
 # --- VIEW 2: THREAT MATRIX ---
 elif view == "Threat Matrix":
     st.subheader("📦 Unified Normalized Threat Intelligence")
@@ -73,6 +80,7 @@ elif view == "Threat Matrix":
     except Exception as e:
         st.error(f"Could not load data from database API: {e}")
 
+
 # --- VIEW 3: AUDIT LOGS ---
 elif view == "Audit logs":
     st.subheader("🔍 Active Verifier & Hallucination Audits")
@@ -87,3 +95,50 @@ elif view == "Audit logs":
                 st.info("No audit logs found.")
     except Exception as e:
         st.error(f"Could not load system logs: {e}")
+
+
+# --- VIEW 4: RESEARCH METRICS VIEW ---
+elif view == "Research Metrics":
+    st.title("📊 Empirical Research Evaluation Metrics")
+    st.subheader("Live Tracking from AWS RDS Cluster")
+    
+    try:
+        conn = get_db_connection()
+        if conn:
+            # Pulling from evaluation_metrics table ordered by the database ID fallback
+            df = pd.read_sql_query("SELECT * FROM evaluation_metrics ORDER BY id DESC;", conn)
+            conn.close()
+            
+            if df.empty:
+                st.warning("Database connected successfully, but the evaluation_metrics table is currently empty.")
+            else:
+                # Top performance summary cards for metric evaluation
+                col1, col2, col3 = st.columns(3)
+                col1.metric("Total Evaluations Run", len(df))
+                
+                # Check for latency metric columns dynamically to prevent runtime exceptions
+                if 'total_latency_sec' in df.columns and not df['total_latency_sec'].isna().all():
+                    col2.metric("Avg Latency (Sec)", f"{df['total_latency_sec'].mean():.2f}s")
+                else:
+                    col2.metric("Avg Latency (Sec)", "0.00s")
+                    
+                if 'guardrail_triggered' in df.columns:
+                    col3.metric("Guardrails Triggered", int(df['guardrail_triggered'].sum()))
+                else:
+                    col3.metric("Guardrails Triggered", "0")
+                
+                st.markdown("### Evaluation Records Data Grid")
+                # Sleek spreadsheet display containing your model performance vectors
+                st.dataframe(df, use_container_width=True)
+                
+                # Formats the underlying panda data frames as downloadable spreadsheets
+                csv_data = df.to_csv(index=False).encode('utf-8')
+                st.download_button(
+                    label="📥 Download Dataset as CSV",
+                    data=csv_data,
+                    file_name="aws_evaluation_metrics.csv",
+                    mime="text/csv",
+                    use_container_width=True
+                )
+    except Exception as e:
+        st.error(f"Failed to fetch cloud records: {e}")
