@@ -13,6 +13,7 @@ from src.config import get_settings
 from src.db import get_db_connection, release_db_connection
 from graph_agents import build_red_team_graph
 
+
 settings = get_settings()
 llm = ChatBedrock(model_id=settings.bedrock_model_id, region_name="us-east-1", credentials_profile_name=settings.aws_profile_name)
 agent_app = build_red_team_graph(llm)
@@ -161,7 +162,7 @@ def get_metrics():
     conn = get_db_connection()
     try:
         cur = conn.cursor(cursor_factory=extras.RealDictCursor)
-        cur.execute("SELECT * FROM evaluation_metrics ORDER BY evaluated_at DESC LIMIT 50")
+        cur.execute("SELECT * FROM graph_execution_metrics ORDER BY evaluated_at DESC LIMIT 50")
         return cur.fetchall()
     finally:
         release_db_connection(conn)

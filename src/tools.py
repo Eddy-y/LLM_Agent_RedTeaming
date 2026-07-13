@@ -6,7 +6,7 @@ Migrated to query the Amazon RDS PostgreSQL database.
 
 from langchain_core.tools import tool
 import psycopg2.extras
-from .db import get_db_connection
+from db import get_db_connection
 
 @tool
 def search_local_cti(package_name: str) -> str:
@@ -29,7 +29,7 @@ def search_local_cti(package_name: str) -> str:
         cursor.execute(
             """
             SELECT source, record_type, canonical_id, title, summary, severity 
-            FROM normalized_items 
+            FROM threat_intelligence_records 
             WHERE package_name = %s OR summary ILIKE %s OR title ILIKE %s
             LIMIT 50
             """, 

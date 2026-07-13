@@ -7,10 +7,10 @@ from datetime import datetime
 from .db import get_db_connection
 
 def _init_metrics_table(conn):
-    """Ensures the comprehensive evaluation_metrics table exists in RDS."""
+    """Ensures the graph_execution_metrics table exists in RDS."""
     with conn.cursor() as cur:
         cur.execute("""
-            CREATE TABLE IF NOT EXISTS evaluation_metrics (
+            CREATE TABLE IF NOT EXISTS graph_execution_metrics (
                 id SERIAL PRIMARY KEY,
                 evaluated_at TIMESTAMP NOT NULL,
                 package_target VARCHAR(255) NOT NULL,
@@ -56,7 +56,7 @@ def log_metric(data: dict):
         
         with conn.cursor() as cur:
             cur.execute("""
-                INSERT INTO evaluation_metrics (
+                INSERT INTO graph_execution_metrics (
                     evaluated_at, package_target, prompt_version,
                     retrieval_latency_sec, analysis_latency_sec, total_latency_sec, update_latency_sec,
                     ingestion_success, schema_completeness,

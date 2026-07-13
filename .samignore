@@ -3,6 +3,7 @@
 __pycache__/
 *.pyc
 .gitignore
+CLAUDE.md
 
 # AWS SAM files
 .aws-sam/
@@ -13,6 +14,7 @@ events/
 
 # Ignore local data backups
 data/
+cti_dependencies/
 
 # Local development environments
 venv/

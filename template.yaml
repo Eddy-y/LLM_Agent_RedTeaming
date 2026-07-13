@@ -34,8 +34,8 @@ Resources:
     Type: AWS::Serverless::Function
     Properties:
       FunctionName: CTI-Lambda-Worker-SAM
-      CodeUri: . 
-      Handler: src.lambda_worker.lambda_handler
+      CodeUri: src/ 
+      Handler: lambda_worker.lambda_handler
       Runtime: python3.13
       Timeout: 180 
       MemorySize: 512
@@ -72,7 +72,7 @@ Resources:
       AllocatedStorage: 20
       MasterUsername: cti_admin
       MasterUserPassword: "{{resolve:ssm-secure:CTI_DB_PASSWORD:1}}" # Securely fetches from AWS Secrets Manager
-      PubliclyAccessible: false
+      PubliclyAccessible: true
 
 
           

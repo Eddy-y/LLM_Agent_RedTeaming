@@ -10,15 +10,16 @@ import os
 from pathlib import Path
 from dotenv import load_dotenv
 
-from .config import get_settings
-from .utils import ensure_dir, safe_slug, utc_now_iso, write_json
+from config import get_settings
+from utils import ensure_dir, safe_slug, utc_now_iso, write_json
 
-from .sources.pypi import fetch_pypi_json, PYPI_SOURCE
-from .sources.github_advisories import fetch_github_advisories, GITHUB_SOURCE
-from .sources.nvd import fetch_nvd_cves, NVD_SOURCE
+from sources.pypi import fetch_pypi_json, PYPI_SOURCE
+from sources.github_advisories import fetch_github_advisories, GITHUB_SOURCE
+from sources.nvd import fetch_nvd_cves, NVD_SOURCE
 
-from .fetchers import fetch_mitre_objects, fetch_capec_objects
-from .state import load_state, advance_mitre_offset, advance_capec_offset
+from fetchers import fetch_mitre_objects, fetch_capec_objects
+from state import load_state, advance_mitre_offset, advance_capec_offset
+from db import get_db_connection, release_db_connection
 
 import dotenv
 dotenv.load_dotenv()
@@ -30,6 +31,89 @@ def _raw_path_for(data_dir: Path, run_id: str, package: str, source: str) -> Pat
     pkg = safe_slug(package)
     src = safe_slug(source)
     return data_dir / "raw" / run_id / pkg / f"{src}.json"
+
+def get_existing_ids(package_name: str, source: str) -> set[str]:
+    """
+    Query the database for existing canonical_ids for a given package and source.
+    Returns a set of IDs to enable fast deduplication checks.
+    """
+    conn = get_db_connection()
+    if not conn:
+        print(f"    [WARN] DB connection unavailable, skipping deduplication check for {package_name}")
+        return set()
+
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT canonical_id FROM threat_intelligence_records WHERE package_name = %s AND source = %s",
+                (package_name, source)
+            )
+            return {row[0] for row in cur.fetchall() if row[0]}
+    except Exception as e:
+        print(f"    [WARN] Error fetching existing IDs for {package_name}/{source}: {e}")
+        return set()
+    finally:
+        release_db_connection(conn)
+
+def extract_id_from_raw(raw_item: dict, source: str) -> str | None:
+    """
+    Extract the canonical ID from raw data before LLM processing.
+    This enables pre-LLM deduplication to save Bedrock compute.
+    """
+    if source == NVD_SOURCE:
+        # NVD structure: {"cve": {"id": "CVE-2021-1234", ...}}
+        return raw_item.get("cve", {}).get("id")
+    elif source == GITHUB_SOURCE:
+        # GitHub structure: {"ghsaId": "GHSA-xxxx-xxxx-xxxx", ...}
+        return raw_item.get("ghsaId")
+    elif source == PYPI_SOURCE:
+        # PyPI doesn't have structured IDs in the raw payload, defer to LLM
+        return None
+    elif source == "attack":
+        # MITRE ATT&CK: Extract external_id from external_references (e.g., "T1055.011")
+        # Agents normalize to this human-readable format, not the STIX ID
+        refs = raw_item.get("external_references", [])
+        for ref in refs:
+            if ref.get("source_name") == "mitre-attack" and ref.get("external_id"):
+                return ref["external_id"]
+        return None
+    elif source == "capec":
+        # CAPEC: Extract CAPEC-### ID from external_references
+        # Agents normalize to this format (e.g., "CAPEC-1")
+        refs = raw_item.get("external_references", [])
+        for ref in refs:
+            if ref.get("source_name") == "capec" and ref.get("external_id"):
+                return ref["external_id"]
+        return None
+    return None
+
+def filter_new_items(raw_items: list[dict], package: str, source: str) -> list[dict]:
+    """
+    Filter out items that already exist in the database by canonical_id.
+    This prevents redundant LLM processing and database overwrites.
+    """
+    if not raw_items:
+        return []
+
+    existing_ids = get_existing_ids(package, source)
+    if not existing_ids:
+        # No existing records, process all items
+        return raw_items
+
+    new_items = []
+    for item in raw_items:
+        item_id = extract_id_from_raw(item, source)
+        if item_id is None:
+            # Can't extract ID, let it through (e.g., PyPI case)
+            new_items.append(item)
+        elif item_id not in existing_ids:
+            new_items.append(item)
+
+    filtered_count = len(raw_items) - len(new_items)
+    if filtered_count > 0:
+        print(f"    [DEDUP] Filtered {filtered_count}/{len(raw_items)} existing {source} items for {package}")
+
+    return new_items
 
 def push_to_sqs(run_id: str, package: str, source_name: str, raw_items: list):
     """
@@ -75,18 +159,26 @@ def run_pipeline(packages: list[str] | None = None) -> str:
 def _run_universal_corpora(run_id: str):
     print("\n--- Processing Universal Corpora (MITRE & CAPEC) ---")
     state = load_state()
-    
+
     mitre_offset = state.get("mitre_offset", 0)
     mitre_data = fetch_mitre_objects(offset=mitre_offset, limit=5)
     if mitre_data and mitre_data.get("objects"):
-        push_to_sqs(run_id, "Universal", "attack", mitre_data["objects"])
-        advance_mitre_offset(5)
-        
+        new_mitre = filter_new_items(mitre_data["objects"], "Universal", "attack")
+        if new_mitre:
+            push_to_sqs(run_id, "Universal", "attack", new_mitre)
+            advance_mitre_offset(5)
+        else:
+            print(f"    [INFO] All {len(mitre_data['objects'])} MITRE objects already exist")
+
     capec_offset = state.get("capec_offset", 0)
     capec_data = fetch_capec_objects(offset=capec_offset, limit=5)
     if capec_data and capec_data.get("objects"):
-        push_to_sqs(run_id, "Universal", "capec", capec_data["objects"])
-        advance_capec_offset(5)
+        new_capec = filter_new_items(capec_data["objects"], "Universal", "capec")
+        if new_capec:
+            push_to_sqs(run_id, "Universal", "capec", new_capec)
+            advance_capec_offset(5)
+        else:
+            print(f"    [INFO] All {len(capec_data['objects'])} CAPEC objects already exist")
 
 def _run_for_package(run_id: str, package: str, settings) -> None:
     print(f"\nRunning ingestion for package: {package}")
@@ -110,30 +202,45 @@ def _run_for_package(run_id: str, package: str, settings) -> None:
     if settings.github_token:
         gh_status, gh_payload, gh_err, gh_end = fetch_github_advisories(package, github_token=settings.github_token, timeout_seconds=settings.http_timeout_seconds, user_agent=settings.user_agent)
         gh_path = _raw_path_for(settings.data_dir, run_id, package, GITHUB_SOURCE)
-        if gh_payload: 
+        if gh_payload:
             write_json(gh_path, gh_payload)
-            push_to_sqs(run_id, package, GITHUB_SOURCE, gh_payload)
+            # Extract nodes array from payload structure: {"package": "...", "nodes": [...]}
+            nodes = gh_payload.get("nodes", [])
+            # Deduplicate before queuing
+            new_advisories = filter_new_items(nodes, package, GITHUB_SOURCE)
+            if new_advisories:
+                push_to_sqs(run_id, package, GITHUB_SOURCE, new_advisories)
+            else:
+                print(f"    [INFO] All {len(nodes)} GitHub advisories already exist for: {package}")
+        else:
+            print(f"    [WARN] GitHub Advisories fetch failed for {package}. Status: {gh_status} | Error: {gh_err}")
 
     # Fetch NVD CVEs
     nvd_status, nvd_payload, nvd_err, nvd_end = fetch_nvd_cves(package, api_key=settings.nvd_api_key, timeout_seconds=settings.http_timeout_seconds, user_agent=settings.user_agent)
     nvd_path = _raw_path_for(settings.data_dir, run_id, package, NVD_SOURCE)
-    
-    if nvd_payload: 
+
+    if nvd_payload:
         write_json(nvd_path, nvd_payload)
         vulns = nvd_payload.get("vulnerabilities", [])
-        
+
         if vulns:
-            # Append verified links directly into the data payload before queuing
-            for item in vulns:
-                cve_id = item.get("cve", {}).get("id", "")
-                item["verified_source_url"] = f"https://nvd.nist.gov/vuln/detail/{cve_id}" if cve_id else "https://nvd.nist.gov"
-                
-            print(f"    [SQS] Queuing {len(vulns)} items for nvd processing...")
-            push_to_sqs(run_id, package, NVD_SOURCE, vulns)
+            # Deduplicate before processing
+            new_vulns = filter_new_items(vulns, package, NVD_SOURCE)
+
+            if new_vulns:
+                # Append verified links directly into the data payload before queuing
+                for item in new_vulns:
+                    cve_id = item.get("cve", {}).get("id", "")
+                    item["verified_source_url"] = f"https://nvd.nist.gov/vuln/detail/{cve_id}" if cve_id else "https://nvd.nist.gov"
+
+                print(f"    [SQS] Queuing {len(new_vulns)} new items for nvd processing...")
+                push_to_sqs(run_id, package, NVD_SOURCE, new_vulns)
+            else:
+                print(f"    [INFO] All {len(vulns)} NVD records already exist for: {package}")
         else:
-            print(f"    ℹ️ NVD returned 0 active CVE records for: {package}")
+            print(f"    [INFO] NVD returned 0 active CVE records for: {package}")
     else:
-        print(f"    ⚠️ NVD Fetch failed for {package}. Status: {nvd_status} | Error: {nvd_err}")
+        print(f"    [WARN] NVD Fetch failed for {package}. Status: {nvd_status} | Error: {nvd_err}")
 
 if __name__ == "__main__":
     run_id = run_pipeline()
