@@ -1,0 +1,18 @@
+version = 0.1
+
+[default.global.parameters]
+region = "us-east-1"
+profile = "eddy_tamusa_dev"
+
+[default.build.parameters]
+use_container = true
+
+[default.deploy.parameters]
+stack_name = "redteam-backend-v5"
+resolve_s3 = true
+s3_prefix = "redteam-backend-v5"
+confirm_changeset = true
+image_repositories = []
+
+[default.sync.parameters]
+stack_name = "redteam-backend-v5"

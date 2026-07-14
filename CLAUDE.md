@@ -4,39 +4,75 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-An autonomous Cyber Threat Intelligence (CTI) platform that harvests security feeds, normalizes them via multi-agent LLM orchestration (AWS Bedrock), and provides real-time analytics with hallucination verification and adversarial guardrails. The architecture separates heavy data ingestion from interactive UI using an AWS SQS message queue worker pattern.
+An autonomous Cyber Threat Intelligence (CTI) platform that harvests security feeds, normalizes them via multi-agent LLM orchestration (AWS Bedrock), and provides real-time analytics with hallucination verification and adversarial guardrails. The architecture implements **GraphRAG** (Graph-based Retrieval Augmented Generation) combining semantic vector search, knowledge graphs, and LLM reasoning for contextual threat intelligence.
 
 **Core Research Questions (RQ) addressed:**
-- RQ2: Semantic search with zero-hallucination URL construction
+- RQ2: Semantic search with zero-hallucination URL construction (hybrid retrieval: vectors + graph traversal)
 - RQ3: Active interception guardrails for weaponization prevention
 - RQ4: Red-team adversarial emulation testing
 
+**Key Technologies:**
+- **Storage:** PostgreSQL (pgvector for embeddings) + Neo4j Aura (knowledge graph)
+- **Embeddings:** AWS Bedrock Titan Text Embeddings v1 (1536 dimensions)
+- **Graph Database:** Neo4j 5.14+ with Cypher query language
+- **LLM Orchestration:** LangGraph + AWS Bedrock (Llama 3 8B)
+
 ## Architecture
 
-### Data Flow Pipeline
-1. **Ingestion** (`src/ingest_to_sqs.py`) → Fetches from PyPI, NVD, GitHub Advisories, MITRE ATT&CK, CAPEC → Pushes to AWS SQS
+### Data Flow Pipeline (GraphRAG Architecture)
+1. **Ingestion** (`scripts/ingest_to_sqs.py`) → Fetches from PyPI, NVD, GitHub Advisories, MITRE ATT&CK, CAPEC → Pushes to AWS SQS
 2. **Queue** (AWS SQS) → Decouples ingestion from processing
-3. **Worker** (`src/lambda_worker.py`) → Lambda function or local daemon drains queue → Routes to specialist agents → Normalizes → Writes to RDS
-4. **LangGraph Engine** (`graph_agents.py`) → Conversational intelligence with researcher → analyzer → interception nodes
-5. **Validation** (`src/validators/`) → URL validation and summary verification modules
+3. **Worker** (`src/lambda_worker.py`) → Lambda drains queue → Routes to specialist agents → Normalizes → **Dual Write**:
+   - **PostgreSQL RDS:** Structured records + vector embeddings (pgvector)
+   - **Neo4j Aura:** Knowledge graph (nodes + relationships)
+4. **Embedding Generation** (`src/embeddings.py`) → Bedrock Titan creates 1536-dim vectors from threat summaries
+5. **Graph Extraction** (`src/graph_extractor.py`) → Extracts entities (Vulnerability, Package, Weakness, etc.) and relationships (EXPLOITS, AFFECTS, ENABLES)
+6. **Hybrid Retrieval** (`graph_agents.py`) → Combines:
+   - Vector similarity search (pgvector cosine distance)
+   - Full-text search (PostgreSQL tsvector)
+   - Graph traversal (Neo4j Cypher queries for attack chains)
+7. **LangGraph Engine** (`graph_agents.py`) → Conversational intelligence with researcher → analyzer → interception nodes
+8. **Validation** (`src/validators/`) → URL validation and summary verification modules
 
 ### Key Components
 
 **Multi-Agent System** (`src/agents.py`)
 - Source-specific specialists: PyPI, GitHub, NVD, MITRE, CAPEC agents
+- Each agent now extracts **relationship triples** (subject, predicate, object) for knowledge graph construction
 - Central normalizer unifies schema across all sources
 - All agents use AWS Bedrock (Llama 3 8B by default)
 
+**Graph Extraction Engine** (`src/graph_extractor.py`)
+- `extract_triples()`: Parses agent-extracted relationships with validation
+- `build_graph_data()`: Converts triples to Neo4j-compatible nodes and edges
+- Hallucination prevention: Validates entity IDs match known patterns (CVE-*, CWE-*, GHSA-*)
+- Supports 6 node types and 13 relationship types
+
+**Embeddings Module** (`src/embeddings.py`)
+- `generate_embedding()`: Creates 1536-dimensional vectors using AWS Bedrock Titan Text Embeddings v1
+- Caching: Embeddings stored in PostgreSQL `embedding` column for reuse
+- Cost: ~$0.0001 per 1000 tokens (summary embeddings typically 50-200 tokens)
+
+**Neo4j Graph Database** (`src/graph_db.py`)
+- Connection management with connection pooling and SSL (neo4j+s:// protocol)
+- `batch_insert_graph()`: Efficient MERGE operations for nodes and relationships
+- Platform-aware SSL certificates (Windows: certifi, Linux: system)
+- Automatic fallback: Neo4j writes are non-blocking (PostgreSQL always succeeds even if Neo4j fails)
+
+**PostgreSQL Database** (`src/db.py`)
+- ThreadedConnectionPool (1-20 connections)
+- Tables: `threat_intelligence_records`, `ingestion_logs`, `graph_execution_metrics`, `url_validation_logs`, `summary_verification_logs`
+- **pgvector extension:** Stores 1536-dim embeddings for semantic search
+- Full-text search indexes on `summary` column
+
 **LangGraph Workflow** (`graph_agents.py`)
-- `researcher_node`: Fetches semantic CTI data from RDS using PostgreSQL full-text search
+- `researcher_node`: **Hybrid retrieval** combining:
+  - Vector similarity search (pgvector cosine distance)
+  - Full-text search (PostgreSQL tsvector)
+  - Graph traversal (Neo4j Cypher for related CVEs, attack patterns)
 - `analyzer_node`: Generates threat reports with strict source URL preservation
 - `interception_node`: Safety guardrail that blocks weaponization requests
 - `build_attacker_graph()`: Red-team testing harness with jailbreak attempts
-
-**Database** (`src/db.py`)
-- ThreadedConnectionPool (1-20 connections)
-- Tables: `threat_intelligence_records`, `ingestion_logs`, `graph_execution_metrics`, `url_validation_logs`, `summary_verification_logs`
-- PostgreSQL with pgvector extension for semantic search
 
 **URL Validation** (`src/validators/url_validator.py`)
 - `validate_and_log_urls()`: Lightweight URL validation without LLM overhead
@@ -73,22 +109,44 @@ An autonomous Cyber Threat Intelligence (CTI) platform that harvests security fe
 # Optional: GITHUB_TOKEN, NVD_API_KEY
 
 # Initialize database schema (run once or after schema changes)
-python -m src.init_cloud_db
+python -m scripts.init_cloud_db
 
-# If migrating from old table names, run migration script first:
-python -m src.migrate_table_names
+# Initialize Neo4j graph schema (run once after creating Neo4j Aura instance)
+python -m scripts.init_neo4j_schema
 ```
 
 ### Data Pipeline Operations
 
+**Database Cleanup (before re-ingestion)**
+```bash
+python scripts/cleanup_databases.py
+```
+- Truncates all threat intelligence tables in PostgreSQL
+- Resets pagination state to 0 for all sources
+- Provides Neo4j cleanup commands (manual execution required)
+- Requires explicit confirmation before deletion
+
+**Batch Ingestion (accumulate historical data)**
+```bash
+cd scripts
+python batch_ingestion.py --runs 50       # Run 50 ingestion cycles
+python batch_ingestion.py --runs 100 --pause 15  # Custom runs and pause duration
+```
+- Runs ingestion pipeline N times to accumulate historical records
+- **Per-package pagination:** Each (source, package) pair maintains independent offset state
+- Real-time monitoring: Shows record counts, pagination state, embedding coverage after each run
+- Graceful interrupt handling (Ctrl+C)
+- Estimated duration: 50 runs ≈ 17 minutes
+
 **Step 1: Ingest raw data to SQS queue**
 ```bash
-python -m src.ingest_to_sqs
+python scripts/ingest_to_sqs.py
 ```
 - Respects NVD API rate limits with 6-second cooling window
 - Queues messages for: PyPI, GitHub Advisories, NVD CVEs, MITRE ATT&CK, CAPEC
 - Stores raw payloads in `data/raw/<run_id>/`
 - **Deduplication:** Pre-LLM filtering skips already-processed canonical_ids (CVE-*, GHSA-*, etc.) to save Bedrock compute and prevent redundant database overwrites
+- **Per-package pagination:** NVD and GitHub maintain separate offsets for each package (numpy, flask, etc.)
 - PyPI metadata is always queued (no deduplication) to allow for updated package information
 
 **Step 2: Process queue with worker**
@@ -148,6 +206,18 @@ python test/generate_phase1_benchmarks.py
 
 # Test summary verification components
 python -m test.test_summary_verifier
+
+# Test GraphRAG components (embeddings, graph extraction, Neo4j)
+python test/test_graphrag.py
+
+# Test Neo4j connection and schema
+python -c "from src.graph_db import test_connection; test_connection()"
+
+# Test embedding generation
+python -c "from src.embeddings import generate_embedding; e = generate_embedding('test'); print(f'Embedding dim: {len(e)}')"
+
+# Test hybrid retrieval (requires data in PostgreSQL + Neo4j)
+python -c "from graph_agents import hybrid_retrieval; results = hybrid_retrieval('SQL injection', 'django'); print(f'Found {len(results)} results')"
 ```
 
 ### AWS SAM Deployment
@@ -161,6 +231,73 @@ sam deploy           # Subsequent deploys
 
 # Configuration stored in samconfig.toml
 # Uses AWS profile: eddy_tamusa_dev (edit samconfig.toml to change)
+```
+
+## Neo4j Knowledge Graph Schema
+
+### Node Types (6)
+
+1. **Vulnerability** - CVEs, GitHub Security Advisories (GHSA-*)
+   - Properties: `canonical_id`, `title`, `summary`, `severity`, `published_at`
+   - Constraint: `canonical_id` is UNIQUE
+   - Indexed: `severity`, `published_at`
+
+2. **Package** - Software packages (PyPI, npm, etc.)
+   - Properties: `name`, `ecosystem`
+   - Constraint: `name` is UNIQUE
+
+3. **Weakness** - CWE (Common Weakness Enumeration)
+   - Properties: `cwe_id`, `name`, `description`
+   - Constraint: `cwe_id` is UNIQUE
+
+4. **AttackTactic** - MITRE ATT&CK techniques/tactics
+   - Properties: `mitre_id`, `name`, `description`, `tactic_type`
+   - Constraint: `mitre_id` is UNIQUE
+   - Indexed: `tactic_type`
+
+5. **AttackPattern** - CAPEC attack patterns
+   - Properties: `capec_id`, `name`, `description`, `likelihood`
+   - Constraint: `capec_id` is UNIQUE
+
+6. **DefenseControl** - Mitigation strategies and security controls
+   - Properties: `control_id`, `name`, `description`
+   - Constraint: `control_id` is UNIQUE
+
+### Relationship Types (13)
+
+- `EXPLOITS`: Vulnerability → Weakness (CVE exploits CWE weakness)
+- `AFFECTS`: Vulnerability → Package (with `version_range` property)
+- `ENABLES`: Vulnerability → AttackTactic (CVE enables MITRE technique)
+- `IMPLEMENTS`: AttackTactic → AttackPattern (technique implements CAPEC)
+- `TARGETS`: AttackPattern → Weakness (CAPEC targets CWE)
+- `MITIGATES`: DefenseControl → AttackTactic (control mitigates technique)
+- `REMEDIATES`: DefenseControl → Vulnerability (control remediates CVE)
+- `SUB_TECHNIQUE_OF`: AttackTactic → AttackTactic (hierarchy)
+- `CHILD_OF`: AttackPattern → AttackPattern (hierarchy)
+- `DEPENDS_ON`: Package → Package (dependency graph)
+- `HAS_VULNERABILITY`: Package → Vulnerability (package contains CVE)
+- `REFERENCED_BY`: Any → ExternalResource (citations)
+- `RELATED_TO`: Generic relationship (catch-all)
+
+### Graph Queries (Cypher Examples)
+
+**Find all CVEs exploiting SQL Injection:**
+```cypher
+MATCH (v:Vulnerability)-[:EXPLOITS]->(w:Weakness {cwe_id: 'CWE-89'})
+RETURN v.canonical_id, v.severity, v.summary
+```
+
+**Attack chain discovery (2-hop traversal):**
+```cypher
+MATCH path = (v:Vulnerability)-[:ENABLES|IMPLEMENTS*1..2]->(ap:AttackPattern)
+WHERE v.severity IN ['HIGH', 'CRITICAL']
+RETURN path LIMIT 10
+```
+
+**Find affected packages by vulnerability:**
+```cypher
+MATCH (p:Package)<-[:AFFECTS]-(v:Vulnerability {canonical_id: 'CVE-2024-12345'})
+RETURN p.name, p.ecosystem
 ```
 
 ## Code Patterns and Conventions
@@ -219,6 +356,117 @@ threading.Thread(
 ```
 This validates all URLs in the response via HTTP HEAD requests and logs results to `url_validation_logs` without calling an LLM.
 
+### GraphRAG Dual-Write Pattern
+Write threat intelligence to both PostgreSQL and Neo4j simultaneously:
+```python
+from src.db import get_db_connection, insert_threat_record
+from src.embeddings import generate_embedding
+from src.graph_extractor import extract_triples, build_graph_data
+from src.graph_db import batch_insert_graph
+
+# 1. Generate embedding from summary
+embedding = generate_embedding(normalized_record['summary'])
+
+# 2. Write to PostgreSQL with embedding
+conn = get_db_connection()
+try:
+    insert_threat_record(conn, normalized_record, embedding)
+finally:
+    release_db_connection(conn)
+
+# 3. Extract graph triples from relationships field
+triples = extract_triples(normalized_record.get('relationships', []))
+
+# 4. Build Neo4j nodes and edges
+nodes, edges = build_graph_data(triples, normalized_record)
+
+# 5. Write to Neo4j (non-blocking, PostgreSQL succeeds even if this fails)
+batch_insert_graph(nodes, edges)
+```
+
+### Hybrid Retrieval Pattern (GraphRAG)
+Combine vector search, full-text search, and graph traversal:
+```python
+def hybrid_retrieval(user_query: str, package_name: str, top_k: int = 5):
+    # 1. Generate query embedding
+    query_embedding = generate_embedding(user_query)
+    
+    # 2. Vector similarity search (pgvector)
+    vector_results = vector_search(query_embedding, package_name, top_k)
+    
+    # 3. Full-text search (PostgreSQL tsvector)
+    fulltext_results = fulltext_search(user_query, package_name, top_k)
+    
+    # 4. Graph traversal (Neo4j Cypher)
+    cve_ids = [r['canonical_id'] for r in vector_results]
+    graph_results = graph_traverse(cve_ids, depth=2)  # Find related CVEs
+    
+    # 5. Merge and deduplicate results
+    combined = merge_results(vector_results, fulltext_results, graph_results)
+    
+    return combined
+```
+
+### Neo4j Connection Pattern
+Always use context manager for Neo4j sessions:
+```python
+from src.graph_db import get_neo4j_session
+
+with get_neo4j_session() as session:
+    result = session.run("""
+        MATCH (v:Vulnerability)-[:EXPLOITS]->(w:Weakness)
+        WHERE v.canonical_id = $cve_id
+        RETURN w.cwe_id, w.name
+    """, cve_id="CVE-2024-12345")
+    
+    for record in result:
+        print(f"CWE: {record['w.cwe_id']} - {record['w.name']}")
+```
+
+### Embedding Generation Pattern
+Generate embeddings for semantic search:
+```python
+from src.embeddings import generate_embedding
+
+# Generate embedding from threat summary
+summary = "SQL injection vulnerability in Django ORM allows authenticated users to execute arbitrary SQL queries"
+embedding = generate_embedding(summary)  # Returns list of 1536 floats
+
+# Store in PostgreSQL with pgvector
+conn.execute(
+    "INSERT INTO threat_intelligence_records (summary, embedding) VALUES (%s, %s)",
+    (summary, embedding)
+)
+```
+
+### Graph Extraction Pattern
+Extract structured triples from agent relationships:
+```python
+from src.graph_extractor import extract_triples, build_graph_data
+
+# Agent returns relationships in JSON
+agent_response = {
+    'relationships': [
+        {'subject': 'CVE-2024-12345', 'predicate': 'EXPLOITS', 'object': 'CWE-89'},
+        {'subject': 'CVE-2024-12345', 'predicate': 'AFFECTS', 'object': 'django', 'properties': {'version_range': '>=2.0,<3.0'}}
+    ]
+}
+
+# Extract and validate triples
+triples = extract_triples(agent_response['relationships'])
+
+# Build Neo4j-compatible data structures
+nodes, edges = build_graph_data(triples, normalized_record)
+
+# nodes = [
+#   {'labels': ['Vulnerability'], 'properties': {'canonical_id': 'CVE-2024-12345', ...}},
+#   {'labels': ['Weakness'], 'properties': {'cwe_id': 'CWE-89', ...}}
+# ]
+# edges = [
+#   {'from': 'CVE-2024-12345', 'to': 'CWE-89', 'type': 'EXPLOITS'}
+# ]
+```
+
 ### Summary Verification Pattern
 Validate LLM-generated summaries against source content without LLM overhead:
 ```python
@@ -263,6 +511,8 @@ This approach eliminates LLM cost while providing deterministic, reproducible ve
 **Security:**
 - Database password fetched from .env locally, AWS SSM Parameter Store in Lambda
 - All RDS connections use `sslmode="require"`
+- Neo4j Aura connections use TLS (`neo4j+s://` protocol)
+- Neo4j password stored in AWS SSM Parameter Store: `NEO4J_PASSWORD`
 - Guardrails detect keywords: EXPLOIT, WEAPON (case-insensitive)
 
 **AWS Resources:**
@@ -271,19 +521,35 @@ This approach eliminates LLM cost while providing deterministic, reproducible ve
 - Reserved concurrent executions: 5 (commented out in template.yaml)
 - SQS visibility timeout: 300 seconds
 
+**Neo4j Aura Free Tier Limits:**
+- **Nodes:** 200,000 maximum
+- **Relationships:** 400,000 maximum
+- **Storage:** 50 MB graph data
+- **RAM:** 1 GB
+- **Note:** Graph writes are non-blocking; if Neo4j fails, PostgreSQL still succeeds
+
 ## Configuration Files
 
 - `.env`: Local credentials (never commit)
-- `src/config.py`: Settings dataclass with environment variable loading
-- `template.yaml`: AWS SAM CloudFormation template
+  - PostgreSQL: `DB_HOST`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`, `DB_PORT`
+  - Neo4j: `NEO4J_URI`, `NEO4J_USERNAME`, `NEO4J_PASSWORD`, `NEO4J_DATABASE`
+  - AWS: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`, `SQS_QUEUE_URL`
+  - Optional: `GITHUB_TOKEN`, `NVD_API_KEY`
+- `src/config.py`: Settings dataclass with environment variable loading (includes Neo4j config)
+- `template.yaml`: AWS SAM CloudFormation template (includes Neo4j env vars)
 - `samconfig.toml`: SAM deployment parameters (stack name: redteam-backend)
+- `scripts/`: Local-only scripts (ingestion, DB initialization, Lambda layer cleanup)
+- `src/.samignore`: Excludes `validators/` and `sources/` from Lambda deployment
 
 ## Database Schema
 
 **threat_intelligence_records** (main threat intel table):
 - Unique constraint on `(canonical_id, package_name)`
 - Full-text search on `summary` using `to_tsvector('english', summary)`
-- Optional `embedding` column (vector(1536)) for future semantic search
+- **`embedding` column (vector(1536)):** Stores Bedrock Titan embeddings for semantic search
+  - Populated automatically by Lambda worker during ingestion
+  - Enables cosine similarity search: `ORDER BY embedding <=> query_vector LIMIT 10`
+  - Index: `CREATE INDEX ON threat_intelligence_records USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100);`
 - Columns: id, run_id, package_name, source, record_type, canonical_id, title, summary, severity, published_at, references_json, embedding, verification_status, last_verified_at
 
 **url_validation_logs**:
@@ -308,10 +574,99 @@ This approach eliminates LLM cost while providing deterministic, reproducible ve
 - Populated by `src/validators/summary_verifier.py` module
 - Columns: id, threat_intel_record_id, verified_at, source_url, scrape_status, scraped_content, http_status, keywords_llm, keywords_source, jaccard_score, fuzzy_score, combined_score, verdict, error_msg
 
+**pipeline_state** (pagination tracking):
+- Maintains incremental fetching state for all data sources
+- **Per-package schema:** Composite primary key `(source, package_name)`
+- Universal sources (MITRE, CAPEC): `package_name = 'Universal'`
+- Per-package sources (NVD, GitHub): `package_name = actual package name`
+- Enables independent pagination for each (source, package) pair
+- Auto-created on first access via upsert pattern
+- Columns: source, package_name, offset_value
+- Example state:
+  ```
+  source                | package_name    | offset_value
+  ----------------------|-----------------|-------------
+  mitre                 | Universal       | 250
+  capec                 | Universal       | 250
+  nvd                   | flask           | 1000
+  nvd                   | numpy           | 800
+  github_advisories     | flask           | 50
+  github_advisories     | numpy           | 45
+  ```
+
 **ingestion_logs**:
 - Tracks raw data fetching operations
 - Records HTTP status, errors, and raw data file paths
 - Columns: id, run_id, package_name, source, endpoint, fetched_at_utc, http_status, error, raw_path
+
+## Project Structure
+
+```
+LLM_Agent_RedTeaming/
+├── src/                           # Lambda-deployed code (CodeUri in template.yaml)
+│   ├── lambda_worker.py           # Lambda entry point (SQS event handler)
+│   ├── agents.py                  # Multi-agent specialists (PyPI, NVD, GitHub, MITRE, CAPEC)
+│   ├── db.py                      # PostgreSQL connection pooling + insert operations
+│   ├── graph_db.py                # Neo4j connection management + batch insert
+│   ├── graph_extractor.py         # Extract entities/relationships from agent output
+│   ├── embeddings.py              # Bedrock Titan embedding generation
+│   ├── config.py                  # Configuration dataclass (env vars)
+│   ├── metrics.py                 # Performance tracking
+│   ├── validators/                # ❌ Excluded by .samignore (local verification only)
+│   │   ├── url_validator.py      # HTTP HEAD request validation
+│   │   └── summary_verifier.py   # TF-IDF + Jaccard similarity verification
+│   └── sources/                   # ❌ Excluded by .samignore (used by ingestion scripts)
+│       ├── pypi.py                # PyPI API fetcher
+│       ├── nvd.py                 # NVD API fetcher
+│       └── github_advisories.py  # GitHub GraphQL fetcher
+│
+├── scripts/                       # ❌ Local-only scripts (NOT deployed to Lambda)
+│   ├── ingest_to_sqs.py           # Data ingestion orchestrator
+│   ├── init_cloud_db.py           # PostgreSQL schema provisioning
+│   ├── init_neo4j_schema.py       # Neo4j constraints + indexes
+│   ├── clean_lambda_layer.py      # Lambda layer size optimizer
+│   ├── fetchers.py                # MITRE/CAPEC fetchers
+│   ├── state.py                   # Incremental ingestion state
+│   ├── tools.py                   # Utility functions
+│   └── utils.py                   # File I/O helpers
+│
+├── test/                          # Test suite
+│   ├── test_graphrag.py           # GraphRAG integration tests
+│   ├── run_worker.py              # Local worker daemon
+│   └── ...
+│
+├── cti_dependencies/              # Lambda layer dependencies
+│   ├── requirements.txt           # Full dependencies (local dev)
+│   ├── requirements-lambda.txt    # Minimal dependencies (Lambda only)
+│   └── python/                    # Installed packages (sam build output)
+│
+├── graph_agents.py                # LangGraph workflow (researcher → analyzer → interception)
+├── api.py                         # FastAPI backend (SSE streaming)
+├── app_dashboard.py               # Streamlit dashboard
+├── template.yaml                  # AWS SAM CloudFormation template
+├── samconfig.toml                 # SAM deployment config
+├── CLAUDE.md                      # This file (project documentation)
+└── README.md                      # User-facing documentation
+```
+
+### Key Separation Principles
+
+1. **`src/` = Lambda deployment surface**
+   - Only code here is packaged into Lambda ZIP
+   - `src/.samignore` excludes `validators/` and `sources/` (heavyweight dependencies)
+   
+2. **`scripts/` = Local operations**
+   - Data ingestion, database setup, deployment utilities
+   - NOT included in `CodeUri: src/` so never deployed to Lambda
+   - Uses absolute imports: `from src.db import ...`
+
+3. **`cti_dependencies/` = Lambda layer**
+   - **`requirements.txt`**: Ultra-minimal Lambda deps (3 packages: neo4j, psycopg2-binary, pydantic, ~20 MB)
+     - Used by SAM build and `scripts/clean_lambda_layer.py`
+   - **`requirements-full.txt`**: Complete local dev environment (14 packages, ~130 MB)
+     - Includes langchain, langgraph for LangGraph workflow
+     - Use for local development with `pip install -r cti_dependencies/requirements-full.txt`
+
 
 ## AWS Profile Configuration
 

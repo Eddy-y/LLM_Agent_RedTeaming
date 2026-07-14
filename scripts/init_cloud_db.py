@@ -1,5 +1,5 @@
 from dotenv import load_dotenv
-from db import get_db_connection, release_db_connection
+from src.db import get_db_connection, release_db_connection
 
 def provision_database():
     load_dotenv()
@@ -30,24 +30,6 @@ def provision_database():
                   verification_status VARCHAR(20), last_verified_at TIMESTAMP,
                   CONSTRAINT unique_canonical_package UNIQUE(canonical_id, package_name)
                 );
-            """)
-            # Add verification columns if they don't exist (for existing databases)
-            cur.execute("""
-                DO $$
-                BEGIN
-                    IF NOT EXISTS (
-                        SELECT 1 FROM information_schema.columns
-                        WHERE table_name='threat_intelligence_records' AND column_name='verification_status'
-                    ) THEN
-                        ALTER TABLE threat_intelligence_records ADD COLUMN verification_status VARCHAR(20);
-                    END IF;
-                    IF NOT EXISTS (
-                        SELECT 1 FROM information_schema.columns
-                        WHERE table_name='threat_intelligence_records' AND column_name='last_verified_at'
-                    ) THEN
-                        ALTER TABLE threat_intelligence_records ADD COLUMN last_verified_at TIMESTAMP;
-                    END IF;
-                END $$;
             """)
             cur.execute("""
                 CREATE INDEX IF NOT EXISTS idx_threat_intel_verification
@@ -100,6 +82,20 @@ def provision_database():
                 CREATE INDEX IF NOT EXISTS idx_summary_verification_score
                 ON summary_verification_logs(combined_score);
             """)
+
+            # Create pipeline_state table for pagination tracking (per-package)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS pipeline_state (
+                    source VARCHAR(50) NOT NULL,
+                    package_name VARCHAR(100) NOT NULL,
+                    offset_value INTEGER NOT NULL DEFAULT 0,
+                    PRIMARY KEY (source, package_name)
+                );
+            """)
+            # Insert default rows for universal sources (MITRE/CAPEC don't vary by package)
+            cur.execute("INSERT INTO pipeline_state (source, package_name, offset_value) VALUES ('mitre', 'Universal', 0) ON CONFLICT DO NOTHING")
+            cur.execute("INSERT INTO pipeline_state (source, package_name, offset_value) VALUES ('capec', 'Universal', 0) ON CONFLICT DO NOTHING")
+
         conn.commit()
         print("\nDatabase provisioning complete!")
     except Exception as e:
