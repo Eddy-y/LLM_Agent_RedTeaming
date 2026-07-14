@@ -3,7 +3,7 @@ import boto3
 import requests
 from pathlib import Path
 from tenacity import retry, wait_exponential, stop_after_attempt
-from config import CAPEC_URL, get_settings
+from src.config import CAPEC_URL, get_settings
 
 
 MITRE_URL = "https://raw.githubusercontent.com/mitre/cti/master/enterprise-attack/enterprise-attack.json"

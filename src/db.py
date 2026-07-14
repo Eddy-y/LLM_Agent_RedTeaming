@@ -4,9 +4,13 @@ import boto3
 import psycopg2
 from psycopg2.pool import ThreadedConnectionPool
 from psycopg2.extras import execute_values, RealDictCursor
-from dotenv import load_dotenv
 
-load_dotenv() 
+# Load .env file for local development (not needed in Lambda)
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass  # Running in Lambda, environment variables are provided by AWS 
 
 def get_secure_password():
     """Fetches password from local .env or dynamically from AWS SSM."""
@@ -52,30 +56,76 @@ def release_db_connection(conn):
         db_pool.putconn(conn)
 
 def insert_normalized_batch(conn, run_id, package_name, rows):
+    """
+    Insert normalized threat intelligence records into PostgreSQL.
+
+    Supports optional embedding vectors for semantic search.
+    If a row contains an 'embedding' key with a list of floats, it will be
+    inserted into the embedding column for pgvector similarity search.
+
+    Args:
+        conn: PostgreSQL connection
+        run_id: Ingestion run identifier
+        package_name: Package name
+        rows: List of normalized record dicts (may include 'embedding' key)
+    """
     if not rows: return
     valid_rows = [r for r in rows if r.get("canonical_id")]
     if not valid_rows: return
 
-    query = """
-        INSERT INTO threat_intelligence_records
-          (run_id, package_name, source, record_type, canonical_id, title, summary, severity, published_at, references_json)
-        VALUES %s
-        ON CONFLICT (canonical_id, package_name)
-        DO UPDATE SET
-          run_id = EXCLUDED.run_id,
-          source = EXCLUDED.source,
-          record_type = EXCLUDED.record_type,
-          title = EXCLUDED.title,
-          summary = EXCLUDED.summary,
-          severity = EXCLUDED.severity,
-          published_at = EXCLUDED.published_at,
-          references_json = EXCLUDED.references_json
-    """
-    values = [(
-        run_id, package_name, row.get("source"), row.get("record_type"),
-        row.get("canonical_id"), row.get("title"), row.get("summary"),
-        row.get("severity"), row.get("published_at"), json.dumps(row.get("references", []))
-    ) for row in valid_rows]
+    # Check if any rows have embeddings
+    has_embeddings = any(r.get("embedding") for r in valid_rows)
+
+    if has_embeddings:
+        # Query with embedding column
+        query = """
+            INSERT INTO threat_intelligence_records
+              (run_id, package_name, source, record_type, canonical_id, title, summary,
+               severity, published_at, references_json, embedding)
+            VALUES %s
+            ON CONFLICT (canonical_id, package_name)
+            DO UPDATE SET
+              run_id = EXCLUDED.run_id,
+              source = EXCLUDED.source,
+              record_type = EXCLUDED.record_type,
+              title = EXCLUDED.title,
+              summary = EXCLUDED.summary,
+              severity = EXCLUDED.severity,
+              published_at = EXCLUDED.published_at,
+              references_json = EXCLUDED.references_json,
+              embedding = EXCLUDED.embedding
+        """
+        values = [(
+            run_id, package_name, row.get("source"), row.get("record_type"),
+            row.get("canonical_id"), row.get("title"), row.get("summary"),
+            row.get("severity"), row.get("published_at"),
+            json.dumps(row.get("references", [])),
+            row.get("embedding")  # Will be None if not present
+        ) for row in valid_rows]
+    else:
+        # Original query without embedding (backward compatible)
+        query = """
+            INSERT INTO threat_intelligence_records
+              (run_id, package_name, source, record_type, canonical_id, title, summary,
+               severity, published_at, references_json)
+            VALUES %s
+            ON CONFLICT (canonical_id, package_name)
+            DO UPDATE SET
+              run_id = EXCLUDED.run_id,
+              source = EXCLUDED.source,
+              record_type = EXCLUDED.record_type,
+              title = EXCLUDED.title,
+              summary = EXCLUDED.summary,
+              severity = EXCLUDED.severity,
+              published_at = EXCLUDED.published_at,
+              references_json = EXCLUDED.references_json
+        """
+        values = [(
+            run_id, package_name, row.get("source"), row.get("record_type"),
+            row.get("canonical_id"), row.get("title"), row.get("summary"),
+            row.get("severity"), row.get("published_at"),
+            json.dumps(row.get("references", []))
+        ) for row in valid_rows]
 
     with conn.cursor() as cur:
         execute_values(cur, query, values)

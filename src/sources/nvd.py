@@ -7,9 +7,13 @@ Implements rate-limiting compliance and authentic URL mappings for verification.
 from __future__ import annotations
 import time
 from typing import Any
+from datetime import datetime, timezone
 import requests
 from tenacity import retry, wait_exponential, stop_after_attempt
-from utils import utc_now_iso
+
+def utc_now_iso() -> str:
+    """Returns current UTC time as ISO string."""
+    return datetime.now(timezone.utc).isoformat()
 
 NVD_SOURCE = "nvd"
 
@@ -32,6 +36,7 @@ def fetch_nvd_cves(
     timeout_seconds: int,
     user_agent: str,
     results_per_page: int = 20,
+    start_index: int = 0,
 ) -> tuple[int | None, dict[str, Any] | None, str | None, str]:
     endpoint = "https://services.nvd.nist.gov/rest/json/cves/2.0"
     headers = {"User-Agent": user_agent}
@@ -40,7 +45,7 @@ def fetch_nvd_cves(
         headers["apiKey"] = api_key
     else:
         # 🛡️ NIST Compliance Rule: Sleep 6 seconds before every unauthenticated request to prevent 404/429 throttling
-        print(f"⏳ Public NVD Mode: Enforcing 6-second cooling window for '{package}'...")
+        print(f"⏳ Public NVD Mode: Enforcing 6-second cooling window for '{package}' (startIndex={start_index})...")
         time.sleep(6)
 
     # Clean the string value to prevent request malformation
@@ -49,19 +54,34 @@ def fetch_nvd_cves(
     params = {
         "keywordSearch": clean_keyword,
         "resultsPerPage": int(results_per_page),
+        "startIndex": int(start_index),
     }
 
     try:
         resp = requests.get(endpoint, headers=headers, params=params, timeout=timeout_seconds)
         status = resp.status_code
-        
+
         if status in [403, 429, 500, 502, 503]:
-            resp.raise_for_status() 
-            
+            resp.raise_for_status()
+
         if status != 200:
             return status, None, f"NVD returned status {status}", endpoint
-            
-        return status, resp.json(), None, endpoint
+
+        payload = resp.json()
+
+        # Add pagination metadata to help orchestrator track progress
+        total_results = payload.get("totalResults", 0)
+        results_per_page_returned = payload.get("resultsPerPage", results_per_page)
+        start_index_returned = payload.get("startIndex", start_index)
+
+        payload["_pagination_meta"] = {
+            "total_results": total_results,
+            "start_index": start_index_returned,
+            "results_per_page": results_per_page_returned,
+            "has_more_pages": (start_index_returned + results_per_page_returned) < total_results
+        }
+
+        return status, payload, None, endpoint
     except Exception as e:
         return None, None, f"NVD request failed: {e}", endpoint
 
