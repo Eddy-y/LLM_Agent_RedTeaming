@@ -18,6 +18,31 @@ class AgentState(TypedDict):
     analysis_time: float
     guardrail_triggered: bool
 
+
+def extract_search_terms(prompt: str) -> dict:
+    """
+    Extract structured search terms from natural language input.
+    Returns entity IDs, package names, and the raw query for vector search.
+    """
+    from src.config import get_settings
+    settings = get_settings()
+
+    terms = {
+        "cves": re.findall(r'CVE-\d{4}-\d+', prompt, re.IGNORECASE),
+        "ghsas": re.findall(r'GHSA-[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{4}', prompt),
+        "cwes": re.findall(r'CWE-\d+', prompt, re.IGNORECASE),
+        "capecs": re.findall(r'CAPEC-\d+', prompt, re.IGNORECASE),
+        "packages": [],
+        "query_text": prompt,
+    }
+
+    prompt_lower = prompt.lower()
+    for pkg in settings.packages:
+        if pkg.lower() in prompt_lower:
+            terms["packages"].append(pkg)
+
+    return terms
+
 def semantic_vector_search(query: str, limit: int = 5):
     """
     Retrieve similar records using pgvector cosine similarity.
@@ -122,6 +147,44 @@ def graph_traversal_search(entity_id: str, max_hops: int = 1):
         return []
 
 
+def package_graph_search(package_name: str):
+    """
+    Query Neo4j starting from a Package node to find related vulnerabilities,
+    weaknesses, and attack patterns via AFFECTS/HAS_VULNERABILITY relationships.
+    """
+    from src.graph_db import get_neo4j_session
+
+    try:
+        with get_neo4j_session() as session:
+            query = """
+            MATCH (v:Vulnerability)-[:AFFECTS]->(p:Package {name: $package_name})
+            OPTIONAL MATCH (v)-[:EXPLOITS]->(w:Weakness)
+            OPTIONAL MATCH (v)-[:IMPLEMENTS]->(ap:AttackPattern)
+            RETURN v.canonical_id AS id, v.name AS name, v.summary AS summary,
+                   v.severity AS severity, v.source AS source,
+                   collect(DISTINCT w.cwe_id) AS weaknesses,
+                   collect(DISTINCT ap.capec_id) AS attack_patterns
+            LIMIT 20
+            """
+            result = session.run(query, package_name=package_name)
+            return [
+                {
+                    "canonical_id": record["id"],
+                    "summary": record["summary"],
+                    "severity": record["severity"],
+                    "source": record["source"] or "neo4j_graph",
+                    "weaknesses": [w for w in record["weaknesses"] if w],
+                    "attack_patterns": [a for a in record["attack_patterns"] if a],
+                    "retrieval_method": "graph_package_traversal"
+                }
+                for record in result
+                if record["id"]
+            ]
+    except Exception as e:
+        print(f"⚠️ Package graph search failed: {e}")
+        return []
+
+
 def hybrid_retrieval(query: str, package_name: str = None):
     """
     GraphRAG: Combine semantic search, full-text search, and graph traversal.
@@ -147,23 +210,44 @@ def hybrid_retrieval(query: str, package_name: str = None):
     # Parse the text results back into dict format for consistency
     # (Keeping backward compatibility with existing text-based return)
 
-    # 3. Graph traversal (focused on top seed only to reduce noise)
-    # Only use CVE/GHSA seeds (skip Package nodes to avoid cross-contamination)
-    seed_ids = [
+    # 3. Graph traversal — seeds from BOTH extracted entity IDs and vector/text results
+    extracted = extract_search_terms(query)
+
+    # Direct seeds from user's query text (e.g., "Tell me about CVE-2023-12345")
+    direct_seeds = extracted["cves"] + extracted["ghsas"]
+
+    # Seeds from search results
+    result_seeds = [
         r["canonical_id"] for r in all_results
         if r.get("canonical_id") and (
             r["canonical_id"].startswith("CVE-") or
             r["canonical_id"].startswith("GHSA-")
         )
     ]
-    print(f"🕸️  Graph Traversal (Neo4j): Using top {min(1, len(seed_ids))} CVE seed")
-    for seed_id in seed_ids[:1]:  # Only use the top-ranked CVE
+
+    # Combine, deduplicate, prefer direct seeds first
+    all_seeds = list(dict.fromkeys(direct_seeds + result_seeds))
+    print(f"🕸️  Graph Traversal (Neo4j): {len(direct_seeds)} from prompt, {len(result_seeds)} from search results")
+
+    for seed_id in all_seeds[:3]:
         try:
             graph_results = graph_traversal_search(seed_id, max_hops=1)
-            print(f"  Seed '{seed_id}': Found {len(graph_results)} related vulnerabilities via shared CWEs")
+            print(f"  Seed '{seed_id}': Found {len(graph_results)} related entities via graph")
             all_results.extend(graph_results)
         except Exception as e:
             print(f"⚠️ Graph traversal for {seed_id} failed: {e}")
+            continue
+
+    # 3b. Package-based graph search (if package_name provided or extracted)
+    graph_packages = extracted["packages"] if not package_name else [package_name] + extracted["packages"]
+    graph_packages = list(dict.fromkeys(graph_packages))  # deduplicate
+    for pkg in graph_packages[:2]:
+        try:
+            pkg_graph_results = package_graph_search(pkg)
+            print(f"  Package '{pkg}': Found {len(pkg_graph_results)} vulnerabilities via graph")
+            all_results.extend(pkg_graph_results)
+        except Exception as e:
+            print(f"⚠️ Package graph search for {pkg} failed: {e}")
             continue
 
     # 4. Deduplicate by canonical_id
@@ -259,68 +343,92 @@ def build_red_team_graph(llm):
         """Enhanced researcher with GraphRAG hybrid retrieval."""
         t0 = time.time()
 
+        # Extract user's actual prompt for richer semantic search
+        user_prompt = ""
+        for m in state.get('messages', []):
+            if isinstance(m, HumanMessage):
+                user_prompt = m.content
+                break
+
+        package_name = state.get('package_name') or ""
+
+        # Use the prompt text as the search query (richer semantics than just a package name)
+        # Falls back to package_name if no prompt provided
+        search_query = user_prompt if user_prompt else package_name
+
+        # If no package_name was explicitly provided, try to extract one from the prompt
+        if not package_name:
+            extracted = extract_search_terms(user_prompt)
+            if extracted["packages"]:
+                package_name = extracted["packages"][0]
+
         # GraphRAG: Use hybrid retrieval (semantic + fulltext + graph traversal)
         try:
-            raw_cti_data = hybrid_retrieval(state['package_name'])
+            raw_cti_data = hybrid_retrieval(search_query, package_name=package_name)
         except Exception as e:
             print(f"⚠️ Hybrid retrieval failed, falling back to full-text: {e}")
-            raw_cti_data = fetch_semantic_cti_data(state['package_name'])
+            raw_cti_data = fetch_semantic_cti_data(search_query)
 
-        # 🔍 DEBUG: Log what data is being passed to analyzer
+        # DEBUG: Log what data is being passed to analyzer
         print("\n" + "="*80)
         print(f"📊 RESEARCHER NODE OUTPUT (Data sent to Analyzer)")
         print("="*80)
-        print(f"Package: {state['package_name']}")
+        print(f"Query: {search_query[:100]}")
+        print(f"Package: {package_name or '(derived from prompt)'}")
         print(f"Data length: {len(str(raw_cti_data))} characters")
         print(f"\n{raw_cti_data}")
         print("="*80 + "\n")
 
+        context_label = package_name if package_name else "your query"
         context_msg = HumanMessage(
-            content=f"Here is the database context found for this query:\n{str(raw_cti_data)}",
+            content=f"Here is the database context found for {context_label}:\n{str(raw_cti_data)}",
             name="context_retrieval"
         )
 
         return {
             "messages": [context_msg],
+            "package_name": package_name,
             "retrieval_time": time.time() - t0,
             "steps_taken": state.get("steps_taken") or 0
         }
 
     def analyzer_node(state):
         t0 = time.time()
-        analyzer_prompt = SystemMessage(content="""You are an expert Cyber Threat Intelligence Analyst.
-        Evaluate the provided security records.
-
-        Task:
-        1. You must isolate and include the exact source reference URLs provided in the raw context. Do not invent links.
-        2. For every vulnerability or threat pattern you find, you MUST explicitly include its authentic source reference URL exactly as provided in the context data.
-        3. Generate a concise answer grounded only by in the retrieved database context.
-            Focus on:
-            1. weakness being exploited
-            2. the goal of the attackers
-            3. the potential impact of the vulnerability
-            4. defense controls that could mitigate the threat
-
-        Format your response beautifully using Markdown headings, bullet points, and bold text so it displays cleanly in the UI.""")
 
         # 🛡️ Safe Class-Based Filtering (Bypasses the NoneType property bug entirely)
         clean_history = []
+        has_custom_prompt = False
+
         for m in state.get('messages', []):
             if isinstance(m, (HumanMessage, AIMessage, SystemMessage)):
                 clean_history.append(m)
+                # Check if there's a custom prompt (not the default "Analyze {package}" format)
+                if isinstance(m, HumanMessage) and hasattr(m, 'name') and m.name != "context_retrieval":
+                    if not m.content.startswith("Analyze "):
+                        has_custom_prompt = True
 
-        # 🔍 DEBUG: Log what analyzer node receives as input
-        db_context = "\n".join([m.content for m in clean_history if getattr(m, 'name', '') == "context_retrieval"])
-        print("\n" + "="*80)
-        print(f"🤖 ANALYZER NODE INPUT (Data received from Researcher)")
-        print("="*80)
-        print(f"Number of messages in history: {len(clean_history)}")
-        print(f"Context data length: {len(db_context)} characters")
-        print(f"\nContext content:\n{db_context}")
-        print("="*80 + "\n")
+        # Only use default system prompt if there's NO custom prompt
+        # This allows jailbreak/red-team prompts to work without system prompt interference
+        if not has_custom_prompt:
+            analyzer_prompt = SystemMessage(content="""You are an expert Cyber Threat Intelligence Analyst.
+            Evaluate the provided security records.
 
-        # Invoke your Amazon Bedrock instance
-        raw_response = llm.invoke([analyzer_prompt] + clean_history).content
+            Task:
+            1. You must isolate and include the exact source reference URLs provided in the raw context. Do not invent links.
+            2. For every vulnerability or threat pattern you find, you MUST explicitly include its authentic source reference URL exactly as provided in the context data.
+            3. Generate a concise answer grounded only in the retrieved database context.
+                Focus on:
+                1. weakness being exploited
+                2. the goal of the attackers
+                3. the potential impact of the vulnerability
+                4. defense controls that could mitigate the threat
+
+            Format your response beautifully using Markdown headings, bullet points, and bold text so it displays cleanly in the UI.""")
+            # Invoke your Amazon Bedrock instance
+            raw_response = llm.invoke([analyzer_prompt] + clean_history).content
+        else:
+            # When custom prompt exists, let it take full control without system prompt interference
+            raw_response = llm.invoke(clean_history).content
         print(f"Agent LLM Raw Response: {raw_response}")
         
         final_content = str(raw_response)
