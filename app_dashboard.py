@@ -26,13 +26,13 @@ if view == "Red-Team Sandbox Terminal":
     col1, col2 = st.columns([1, 2])
     
     with col1:
-        target_package = st.text_input("Target Package Name", placeholder="e.g., django")
-        adversarial_prompt = st.text_area("Adversarial/Custom Prompt Override", placeholder="Analyze the package and suggest PoC...", height=150)
+        target_package = st.text_input("Target Package Name (optional)", placeholder="e.g., django")
+        adversarial_prompt = st.text_area("Prompt", placeholder="e.g., How could a supply chain attack target open-source dependencies?", height=150)
         deploy_btn = st.button("Deploy Analysis Agent", use_container_width=True)
-        
+
     with col2:
         st.write("**Real-Time Agent Logs & Analysis Result**")
-        if deploy_btn and target_package:
+        if deploy_btn and (target_package or adversarial_prompt):
             with st.spinner("Invoking LangGraph Orchestrator..."):
                 try:
                     # Pointing to your FastAPI streaming or execution wrapper
@@ -62,7 +62,7 @@ if view == "Red-Team Sandbox Terminal":
                 except Exception as e:
                     st.error(f"Backend API Connection Failed: {e}")
         else:
-            st.info("Enter a package name and click 'Deploy Agent' to witness the LangGraph trace execution.")
+            st.info("Enter a package name, a prompt, or both — then click 'Deploy Agent'.")
 
 
 # --- VIEW 2: THREAT MATRIX ---

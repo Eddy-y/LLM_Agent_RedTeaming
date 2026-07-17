@@ -34,11 +34,12 @@ def get_bedrock_runtime():
 
     if _bedrock_runtime is None:
         session = boto3.Session(profile_name=settings.aws_profile_name)
+        # Titan Embeddings v1 is only available in us-east-1
         _bedrock_runtime = session.client(
             service_name='bedrock-runtime',
-            region_name=settings.aws_region
+            region_name='us-east-1'
         )
-        logger.info(f"Initialized Bedrock runtime client in {settings.aws_region}")
+        logger.info("Initialized Bedrock runtime client in us-east-1")
 
     return _bedrock_runtime
 

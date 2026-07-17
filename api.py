@@ -21,16 +21,20 @@ agent_app = build_red_team_graph(llm)
 app = FastAPI(title="CTI API", version="2.0")
 
 class ReportRequest(BaseModel):
-    package_name: str
+    package_name: str = ""
     prompt: str = ""
 
 
 @app.post("/generate_report_stream")
 async def generate_report_stream(request: Request):
     data = await request.json()
-    package_name = data.get("package_name")
+    package_name = data.get("package_name", "")
     custom_prompt = data.get("prompt", "")
-    
+
+    if not package_name and not custom_prompt:
+        from fastapi.responses import JSONResponse
+        return JSONResponse(status_code=400, content={"error": "Provide either package_name or prompt"})
+
     initial_state = {
         "messages": [HumanMessage(content=custom_prompt or f"Analyze {package_name}")],
         "package_name": package_name,
@@ -65,6 +69,9 @@ async def generate_report_stream(request: Request):
 
 @app.post("/generate_report")
 async def generate_report(request: ReportRequest):
+    if not request.package_name and not request.prompt:
+        raise HTTPException(status_code=400, detail="Provide either package_name or prompt")
+
     initial_state = {
         "messages": [HumanMessage(content=request.prompt or f"Analyze {request.package_name}")],
         "package_name": request.package_name,
