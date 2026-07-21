@@ -7,20 +7,20 @@ def export_to_csv():
     if not conn:
         print("[!] Connection failed.")
         return
-        
+
     try:
-        print("[*] Fetching evaluation metrics from AWS RDS...")
-        # Query all records
-        df = pd.read_sql_query("SELECT * FROM evaluation_metrics ORDER BY evaluated_at DESC;", conn)
-        
+        print("[*] Fetching graph execution metrics from AWS RDS...")
+        # Query all records from graph_execution_metrics table
+        df = pd.read_sql_query("SELECT * FROM graph_execution_metrics ORDER BY evaluated_at DESC;", conn)
+
         if df.empty:
             print("[-] No records found to export.")
             return
-            
+
         # Export cleanly to CSV
-        output_filename = "evaluation_metrics2.csv"
+        output_filename = "graph_execution_metrics.csv"
         df.to_csv(output_filename, index=False)
-        print(f"[+] Success! Exported {len(df)} evaluation records to '{output_filename}'")
+        print(f"[+] Success! Exported {len(df)} graph execution records to '{output_filename}'")
         
     except Exception as e:
         print(f"[!] Export Error: {e}")
