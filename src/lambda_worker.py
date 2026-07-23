@@ -1,19 +1,24 @@
 import json
 import logging
-from agents import (
-    run_pypi_agent, run_github_agent, run_nvd_agent,
-    run_mitre_agent, run_capec_agent, run_central_normalizer
-)
-from db import get_db_connection, release_db_connection, insert_normalized_batch
 
 # Support both Lambda (flat) and local (src/) import paths
 try:
     # Lambda environment (no src. prefix)
+    from agents import (
+        run_pypi_agent, run_github_agent, run_nvd_agent,
+        run_mitre_agent, run_capec_agent, run_central_normalizer
+    )
+    from db import get_db_connection, release_db_connection, insert_normalized_batch
     from graph_extractor import extract_graph_entities
     from graph_db import get_neo4j_session, insert_graph_batch
     from embeddings import generate_embedding
 except ImportError:
     # Local environment (with src. prefix)
+    from src.agents import (
+        run_pypi_agent, run_github_agent, run_nvd_agent,
+        run_mitre_agent, run_capec_agent, run_central_normalizer
+    )
+    from src.db import get_db_connection, release_db_connection, insert_normalized_batch
     from src.graph_extractor import extract_graph_entities
     from src.graph_db import get_neo4j_session, insert_graph_batch
     from src.embeddings import generate_embedding

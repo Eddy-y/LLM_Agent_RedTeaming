@@ -171,12 +171,19 @@ def _run_universal_corpora(run_id: str):
     mitre_data = fetch_mitre_objects(offset=mitre_offset, limit=5)
     if mitre_data and mitre_data.get("objects"):
         mitre_objects = mitre_data["objects"]
-        new_mitre = filter_new_items(mitre_objects, "Universal", "attack")
+
+        # Filter out revoked/deprecated items (they lack complete data)
+        active_mitre = [obj for obj in mitre_objects if not obj.get("revoked") and not obj.get("x_mitre_deprecated")]
+        filtered_count = len(mitre_objects) - len(active_mitre)
+        if filtered_count > 0:
+            print(f"    [FILTER] Skipped {filtered_count} revoked/deprecated MITRE items")
+
+        new_mitre = filter_new_items(active_mitre, "Universal", "attack")
         if new_mitre:
             push_to_sqs(run_id, "Universal", "attack", new_mitre)
             print(f"    [SQS] Queued {len(new_mitre)} new MITRE objects")
         else:
-            print(f"    [INFO] All {len(mitre_objects)} MITRE objects already exist")
+            print(f"    [INFO] All {len(active_mitre)} active MITRE objects already exist")
 
         # Always advance offset to move forward in history (even if all duplicates)
         advance_mitre_offset(len(mitre_objects))
@@ -186,12 +193,19 @@ def _run_universal_corpora(run_id: str):
     capec_data = fetch_capec_objects(offset=capec_offset, limit=5)
     if capec_data and capec_data.get("objects"):
         capec_objects = capec_data["objects"]
-        new_capec = filter_new_items(capec_objects, "Universal", "capec")
+
+        # Filter out deprecated CAPEC items
+        active_capec = [obj for obj in capec_objects if not obj.get("x_capec_status") == "Deprecated"]
+        filtered_count = len(capec_objects) - len(active_capec)
+        if filtered_count > 0:
+            print(f"    [FILTER] Skipped {filtered_count} deprecated CAPEC items")
+
+        new_capec = filter_new_items(active_capec, "Universal", "capec")
         if new_capec:
             push_to_sqs(run_id, "Universal", "capec", new_capec)
             print(f"    [SQS] Queued {len(new_capec)} new CAPEC objects")
         else:
-            print(f"    [INFO] All {len(capec_objects)} CAPEC objects already exist")
+            print(f"    [INFO] All {len(active_capec)} active CAPEC objects already exist")
 
         # Always advance offset to move forward in history (even if all duplicates)
         advance_capec_offset(len(capec_objects))

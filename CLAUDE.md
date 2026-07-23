@@ -137,6 +137,44 @@ python batch_ingestion.py --runs 100 --pause 15  # Custom runs and pause duratio
 - Real-time monitoring: Shows record counts, pagination state, embedding coverage after each run
 - Graceful interrupt handling (Ctrl+C)
 - Estimated duration: 50 runs ≈ 17 minutes
+- **Default batch sizes per run:**
+  - MITRE ATT&CK: 5 items
+  - CAPEC: 5 items
+  - GitHub Advisories: 20 items per package (120 total for 6 packages)
+  - NVD CVEs: 20 items per package (120 total for 6 packages)
+  - PyPI: 1 item per package (6 total)
+
+**Source-Specific Ingestion (target specific sources with custom batch sizes)**
+```bash
+# Ingest 100 MITRE ATT&CK techniques (to balance underrepresented sources)
+python scripts/ingest_source_specific.py --sources mitre --batch-size 100
+
+# Ingest 100 CAPEC attack patterns
+python scripts/ingest_source_specific.py --sources capec --batch-size 100
+
+# Ingest both MITRE and CAPEC with larger batches
+python scripts/ingest_source_specific.py --sources mitre capec --batch-size 100
+
+# Ingest GitHub Advisories only for specific packages
+python scripts/ingest_source_specific.py --sources github --packages flask django --batch-size 50
+
+# Ingest NVD CVEs for all configured packages
+python scripts/ingest_source_specific.py --sources nvd --batch-size 50
+
+# Ingest PyPI metadata for specific packages
+python scripts/ingest_source_specific.py --sources pypi --packages numpy flask
+
+# Ingest from multiple sources at once
+python scripts/ingest_source_specific.py --sources mitre capec github nvd --batch-size 50
+```
+- Use when you need more data from specific sources (e.g., after noticing imbalance like 578 NVD vs 7 MITRE records)
+- Allows custom batch sizes per source to control ingestion rate
+- Accepts `--packages` flag to target specific packages (uses config.py packages if omitted)
+- Maintains same pagination state and deduplication as standard ingestion
+- Useful for:
+  - Balancing underrepresented sources (MITRE/CAPEC often have fewer records due to small default batch size)
+  - Focusing on specific packages without processing entire configured package list
+  - Rapid data collection from high-value sources
 
 **Step 1: Ingest raw data to SQS queue**
 ```bash
@@ -202,7 +240,7 @@ python test/offline_test.py
 python test/test_worker.py
 
 # Generate phase 1 benchmarks
-python test/generate_phase1_benchmarks.py
+python scripts/generate_phase1_benchmarks.py
 
 # Test summary verification components
 python -m test.test_summary_verifier

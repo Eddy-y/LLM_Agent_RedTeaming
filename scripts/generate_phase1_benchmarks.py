@@ -7,7 +7,7 @@ from src.db import get_db_connection
 cw_client = boto3.client('cloudwatch', region_name=os.environ.get('AWS_REGION', 'us-east-1'))
 queue_name = os.environ.get('SQS_QUEUE_URL', '').split('/')[-1]
 
-def get_ingestion_success_rate(hours_back=24):
+def get_ingestion_success_rate(hours_back=240):
     """
     Compares messages sent to SQS vs. records successfully saved in RDS.
     Useful for Graph-1: Ingestion Success Rate
