@@ -100,3 +100,6 @@ pip-log.txt
 *.bak
 *.swp
 *~
+Figures/
+generate_plots.py
+PROFESSOR_TESTING_CHECKLIST.md
