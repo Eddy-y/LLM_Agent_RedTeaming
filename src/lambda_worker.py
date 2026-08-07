@@ -6,7 +6,8 @@ try:
     # Lambda environment (no src. prefix)
     from agents import (
         run_pypi_agent, run_github_agent, run_nvd_agent,
-        run_mitre_agent, run_capec_agent, run_central_normalizer
+        run_mitre_agent, run_capec_agent, run_exploitdb_agent,
+        run_central_normalizer
     )
     from db import get_db_connection, release_db_connection, insert_normalized_batch
     from graph_extractor import extract_graph_entities
@@ -16,7 +17,8 @@ except ImportError:
     # Local environment (with src. prefix)
     from src.agents import (
         run_pypi_agent, run_github_agent, run_nvd_agent,
-        run_mitre_agent, run_capec_agent, run_central_normalizer
+        run_mitre_agent, run_capec_agent, run_exploitdb_agent,
+        run_central_normalizer
     )
     from src.db import get_db_connection, release_db_connection, insert_normalized_batch
     from src.graph_extractor import extract_graph_entities
@@ -49,6 +51,7 @@ def lambda_handler(event, context):
             elif source == "github_advisories" or source == "github": specialist_output = run_github_agent([raw_data])
             elif source == "attack": specialist_output = run_mitre_agent([raw_data])
             elif source == "capec": specialist_output = run_capec_agent([raw_data])
+            elif source == "exploitdb": specialist_output = run_exploitdb_agent([raw_data])
             else:
                 print(f"[!] Unknown source received from SQS: {source}")
                 continue
@@ -92,18 +95,41 @@ def lambda_handler(event, context):
                         # 1. Write to PostgreSQL with embeddings
                         insert_normalized_batch(rds_conn, run_id, package, normalized_data)
 
-                        # 2. Write to Neo4j graph
-                        try:
-                            with get_neo4j_session() as neo4j_session:
-                                result = neo4j_session.execute_write(insert_graph_batch, graph_data)
-                                logger.info(
-                                    f"Dual write complete: {len(normalized_data)} records to RDS, "
-                                    f"{result['nodes_created']} nodes + {result['relationships_created']} edges to Neo4j"
-                                )
-                        except Exception as neo4j_error:
-                            # Log Neo4j errors but don't fail the entire batch
-                            # PostgreSQL is the source of truth
-                            logger.error(f"Neo4j write failed (PostgreSQL write succeeded): {neo4j_error}")
+                        # 2. Write to Neo4j graph with retry logic
+                        neo4j_success = False
+                        max_retries = 3
+
+                        for attempt in range(max_retries):
+                            try:
+                                with get_neo4j_session() as neo4j_session:
+                                    result = neo4j_session.execute_write(insert_graph_batch, graph_data)
+                                    logger.info(
+                                        f"Dual write complete: {len(normalized_data)} records to RDS, "
+                                        f"{result['nodes_created']} nodes + {result['relationships_created']} edges to Neo4j"
+                                    )
+                                    neo4j_success = True
+                                    break  # Success, exit retry loop
+
+                            except Exception as neo4j_error:
+                                if attempt < max_retries - 1:
+                                    import time
+                                    wait_time = 2 ** attempt  # 1s, 2s, 4s
+                                    logger.warning(
+                                        f"Neo4j write attempt {attempt + 1} failed, retrying in {wait_time}s: {neo4j_error}"
+                                    )
+                                    time.sleep(wait_time)
+                                else:
+                                    # Final failure after all retries
+                                    logger.error(
+                                        f"Neo4j write failed after {max_retries} attempts "
+                                        f"(PostgreSQL write succeeded): {neo4j_error}"
+                                    )
+
+                        if not neo4j_success:
+                            logger.warning(
+                                f"Record {normalized_data[0].get('canonical_id', 'unknown')} "
+                                f"is in PostgreSQL but NOT in Neo4j - may need manual backfill"
+                            )
 
                     except Exception as db_error:
                         logger.error(f"Database write failed: {db_error}")

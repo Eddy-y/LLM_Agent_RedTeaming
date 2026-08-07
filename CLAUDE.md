@@ -20,7 +20,7 @@ An autonomous Cyber Threat Intelligence (CTI) platform that harvests security fe
 ## Architecture
 
 ### Data Flow Pipeline (GraphRAG Architecture)
-1. **Ingestion** (`scripts/ingest_to_sqs.py`) → Fetches from PyPI, NVD, GitHub Advisories, MITRE ATT&CK, CAPEC → Pushes to AWS SQS
+1. **Ingestion** (`scripts/ingest_to_sqs.py`) → Fetches from PyPI, NVD, GitHub Advisories, MITRE ATT&CK, CAPEC, Exploit-DB → Pushes to AWS SQS
 2. **Queue** (AWS SQS) → Decouples ingestion from processing
 3. **Worker** (`src/lambda_worker.py`) → Lambda drains queue → Routes to specialist agents → Normalizes → **Dual Write**:
    - **PostgreSQL RDS:** Structured records + vector embeddings (pgvector)
@@ -37,16 +37,16 @@ An autonomous Cyber Threat Intelligence (CTI) platform that harvests security fe
 ### Key Components
 
 **Multi-Agent System** (`src/agents.py`)
-- Source-specific specialists: PyPI, GitHub, NVD, MITRE, CAPEC agents
-- Each agent now extracts **relationship triples** (subject, predicate, object) for knowledge graph construction
-- Central normalizer unifies schema across all sources
+- Source-specific specialists: PyPI, GitHub, NVD, MITRE, CAPEC, Exploit-DB agents
+- Each agent extracts **relationship triples** (subject, predicate, object) for knowledge graph construction
+- Central normalizer unifies schema across all sources (handles both `id` and `canonical_id` fields)
 - All agents use AWS Bedrock (Llama 3 8B by default)
 
 **Graph Extraction Engine** (`src/graph_extractor.py`)
 - `extract_triples()`: Parses agent-extracted relationships with validation
 - `build_graph_data()`: Converts triples to Neo4j-compatible nodes and edges
-- Hallucination prevention: Validates entity IDs match known patterns (CVE-*, CWE-*, GHSA-*)
-- Supports 6 node types and 13 relationship types
+- Hallucination prevention: Validates entity IDs match known patterns (CVE-*, CWE-*, GHSA-*, EDB-*)
+- Supports 7 node types (Vulnerability, Package, Weakness, AttackTactic, AttackPattern, DefenseControl, Exploit) and 14 relationship types
 
 **Embeddings Module** (`src/embeddings.py`)
 - `generate_embedding()`: Creates 1536-dimensional vectors using AWS Bedrock Titan Text Embeddings v1
@@ -164,8 +164,11 @@ python scripts/ingest_source_specific.py --sources nvd --batch-size 50
 # Ingest PyPI metadata for specific packages
 python scripts/ingest_source_specific.py --sources pypi --packages numpy flask
 
+# Ingest Exploit-DB exploits (Python exploits with dense regions at offset 40000)
+python scripts/ingest_source_specific.py --sources exploitdb --packages flask --batch-size 200
+
 # Ingest from multiple sources at once
-python scripts/ingest_source_specific.py --sources mitre capec github nvd --batch-size 50
+python scripts/ingest_source_specific.py --sources mitre capec github nvd exploitdb --batch-size 50
 ```
 - Use when you need more data from specific sources (e.g., after noticing imbalance like 578 NVD vs 7 MITRE records)
 - Allows custom batch sizes per source to control ingestion rate
@@ -181,10 +184,11 @@ python scripts/ingest_source_specific.py --sources mitre capec github nvd --batc
 python scripts/ingest_to_sqs.py
 ```
 - Respects NVD API rate limits with 6-second cooling window
-- Queues messages for: PyPI, GitHub Advisories, NVD CVEs, MITRE ATT&CK, CAPEC
+- Queues messages for: PyPI, GitHub Advisories, NVD CVEs, MITRE ATT&CK, CAPEC, Exploit-DB
 - Stores raw payloads in `data/raw/<run_id>/`
-- **Deduplication:** Pre-LLM filtering skips already-processed canonical_ids (CVE-*, GHSA-*, etc.) to save Bedrock compute and prevent redundant database overwrites
-- **Per-package pagination:** NVD and GitHub maintain separate offsets for each package (numpy, flask, etc.)
+- **Deduplication:** Pre-LLM filtering skips already-processed canonical_ids (CVE-*, GHSA-*, EDB-*, etc.) to save Bedrock compute
+- **Per-package pagination:** NVD, GitHub, and Exploit-DB maintain separate offsets for each package
+- **Exploit-DB:** Fetches from GitLab CSV (cached 24h), filters Python exploits, offset 40000-41000 has highest density (34% Python exploits)
 - PyPI metadata is always queued (no deduplication) to allow for updated package information
 
 **Step 2: Process queue with worker**
@@ -338,6 +342,19 @@ MATCH (p:Package)<-[:AFFECTS]-(v:Vulnerability {canonical_id: 'CVE-2024-12345'})
 RETURN p.name, p.ecosystem
 ```
 
+**Find exploits for a CVE:**
+```cypher
+MATCH (e:Exploit)-[:DEMONSTRATES]->(v:Vulnerability {canonical_id: 'CVE-2024-12345'})
+RETURN e.edb_id, e.title, e.platform, e.script_url
+```
+
+**Find all exploits affecting a package:**
+```cypher
+MATCH (e:Exploit)-[:AFFECTS]->(p:Package {name: 'flask'})
+RETURN e.edb_id, e.title, e.severity, e.published_at
+ORDER BY e.published_at DESC
+```
+
 ## Code Patterns and Conventions
 
 ### Agent Invocation Pattern
@@ -358,6 +375,27 @@ try:
     # ... database operations
 finally:
     release_db_connection(conn)
+```
+
+### Exploit-DB Source Pattern
+```python
+# CSV-based ingestion with caching
+from src.sources.exploitdb import fetch_exploitdb_csv_index, parse_csv_batch
+
+# Fetch CSV (24-hour cache)
+status, csv_path, error, endpoint = fetch_exploitdb_csv_index(
+    timeout_seconds=30,
+    user_agent="cti-pipeline",
+    cache_path=Path("data/exploitdb_cache/files_exploits.csv")
+)
+
+# Parse batch with Python filtering
+exploits = parse_csv_batch(
+    csv_path=csv_path,
+    start_row=40000,  # Dense Python exploit region
+    batch_size=200,
+    target_packages=["flask"]
+)
 ```
 
 ### URL Construction (Zero-Hallucination Pattern)

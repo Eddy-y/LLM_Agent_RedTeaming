@@ -131,6 +131,10 @@ def advance_github_offset(package_name: str, batch_size: int):
     """Advance GitHub Advisories page count for a specific package."""
     advance_package_offset(package_name, 'github_advisories', batch_size)
 
+def advance_exploitdb_offset(package_name: str, batch_size: int):
+    """Advance Exploit-DB CSV row offset for a specific package."""
+    advance_package_offset(package_name, 'exploitdb', batch_size)
+
 def reset_package_state(package_name: str, source: str):
     """Reset pagination state for a specific (source, package) pair."""
     conn = get_db_connection()

@@ -32,6 +32,11 @@ from scripts.utils import ensure_dir, safe_slug, utc_now_iso, write_json
 from src.sources.pypi import fetch_pypi_json, PYPI_SOURCE
 from src.sources.github_advisories import fetch_github_advisories, GITHUB_SOURCE
 from src.sources.nvd import fetch_nvd_cves, NVD_SOURCE
+from src.sources.exploitdb import (
+    fetch_exploitdb_csv_index,
+    parse_csv_batch,
+    EXPLOITDB_SOURCE
+)
 from scripts.fetchers import fetch_mitre_objects, fetch_capec_objects
 from scripts.state import (
     load_universal_state,
@@ -39,7 +44,8 @@ from scripts.state import (
     advance_mitre_offset,
     advance_capec_offset,
     advance_nvd_offset,
-    advance_github_offset
+    advance_github_offset,
+    advance_exploitdb_offset
 )
 
 # Import helper functions from main ingestion script
@@ -223,6 +229,55 @@ def ingest_nvd(run_id: str, packages: list[str], settings, batch_size: int = 20)
         else:
             print(f"    [WARN] NVD fetch failed for {package}. Status: {nvd_status}")
 
+def ingest_exploitdb(run_id: str, packages: list[str], settings, batch_size: int = 200, start_offset: int = 10000):
+    """Ingest Exploit-DB exploits."""
+    print(f"\n--- Ingesting Exploit-DB exploits for {len(packages)} packages (batch_size={batch_size}, start_offset={start_offset}) ---")
+
+    for package in packages:
+        print(f"\n  Processing {package}...")
+        exploitdb_offset = load_package_state(package, EXPLOITDB_SOURCE)
+
+        # Start at specified offset if at position 0 (skip ancient exploits)
+        if exploitdb_offset == 0 and start_offset > 0:
+            exploitdb_offset = start_offset
+            print(f"    [INFO] Starting at offset {start_offset} (skipping early rows)")
+
+        # Fetch CSV index (cached after first download)
+        csv_cache_path = settings.data_dir / "exploitdb_cache" / "files_exploits.csv"
+        edb_status, edb_csv_path, edb_err, edb_endpoint = fetch_exploitdb_csv_index(
+            timeout_seconds=settings.http_timeout_seconds,
+            user_agent=settings.user_agent,
+            cache_path=csv_cache_path
+        )
+
+        if edb_csv_path:
+            # Parse batch of exploits (filters for Python/web-related exploits)
+            exploit_batch = parse_csv_batch(
+                csv_path=edb_csv_path,
+                start_row=exploitdb_offset,
+                batch_size=batch_size,
+                target_packages=[package]
+            )
+
+            if exploit_batch:
+                # Deduplicate (check for existing EDB-* IDs)
+                new_exploits = filter_new_items(exploit_batch, package, EXPLOITDB_SOURCE)
+
+                if new_exploits:
+                    push_to_sqs(run_id, package, EXPLOITDB_SOURCE, new_exploits)
+                    print(f"    [SUCCESS] Queued {len(new_exploits)} new Exploit-DB items")
+                else:
+                    print(f"    [INFO] All {len(exploit_batch)} Exploit-DB records already exist")
+
+                # Advance offset (move forward in CSV)
+                advance_exploitdb_offset(package, len(exploit_batch))
+                print(f"    [STATE] Advanced Exploit-DB offset to {exploitdb_offset + len(exploit_batch)}")
+            else:
+                print(f"    [INFO] No Python-relevant exploits found for {package} at offset {exploitdb_offset}")
+                print(f"    [HINT] Try a different offset range or increase batch size")
+        else:
+            print(f"    [WARN] Exploit-DB CSV fetch failed. Status: {edb_status} | Error: {edb_err}")
+
 def main():
     parser = argparse.ArgumentParser(
         description="Ingest from specific threat intelligence sources",
@@ -253,7 +308,7 @@ Examples:
         '--sources',
         nargs='+',
         required=True,
-        choices=['mitre', 'capec', 'github', 'nvd', 'pypi'],
+        choices=['mitre', 'capec', 'github', 'nvd', 'pypi', 'exploitdb'],
         help='Sources to ingest from'
     )
 
@@ -309,6 +364,9 @@ Examples:
 
     if 'nvd' in args.sources:
         ingest_nvd(run_id, packages, settings, args.batch_size)
+
+    if 'exploitdb' in args.sources:
+        ingest_exploitdb(run_id, packages, settings, args.batch_size)
 
     print("\n" + "=" * 70)
     print("INGESTION COMPLETE")

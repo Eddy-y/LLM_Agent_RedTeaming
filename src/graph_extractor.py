@@ -28,7 +28,8 @@ def infer_node_type(record_type: str) -> str:
         "MITRE": "AttackTactic",
         "CAPEC": "AttackPattern",
         "Package": "Package",
-        "CWE": "Weakness"
+        "CWE": "Weakness",
+        "EDB": "Exploit"
     }
     return mapping.get(record_type, "Entity")
 
@@ -49,7 +50,8 @@ def get_id_field(node_type: str) -> str:
         "Weakness": "cwe_id",
         "AttackTactic": "mitre_id",
         "AttackPattern": "capec_id",
-        "DefenseControl": "control_id"
+        "DefenseControl": "control_id",
+        "Exploit": "edb_id"
     }
     return mapping.get(node_type, "id")
 
@@ -120,6 +122,17 @@ def validate_relationship_triple(triple: Dict[str, Any]) -> bool:
             logger.debug(f"Invalid CAPEC ID format: {subject}")
             return False
 
+    # EDB format check (EDB-NNNNN)
+    if triple["object_type"] == "Exploit":
+        if not re.match(r'^EDB-\d+$', object_val):
+            logger.debug(f"Invalid Exploit-DB ID format: {object_val}")
+            return False
+
+    if triple["subject_type"] == "Exploit":
+        if not re.match(r'^EDB-\d+$', subject):
+            logger.debug(f"Invalid Exploit-DB ID format: {subject}")
+            return False
+
     # Package validation (allow any non-empty string for package names)
     if triple["object_type"] == "Package":
         if not object_val or len(object_val.strip()) == 0:
@@ -140,7 +153,8 @@ def validate_relationship_triple(triple: Dict[str, Any]) -> bool:
     allowed_predicates = {
         "EXPLOITS", "AFFECTS", "ENABLES", "IMPLEMENTS", "TARGETS",
         "MITIGATES", "REMEDIATES", "SUB_TECHNIQUE_OF", "CHILD_OF",
-        "DEPENDS_ON", "HAS_VULNERABILITY", "REFERENCED_BY", "RELATED_TO"
+        "DEPENDS_ON", "HAS_VULNERABILITY", "REFERENCED_BY", "RELATED_TO",
+        "DEMONSTRATES"
     }
     if triple["predicate"] not in allowed_predicates:
         print(f"[VALIDATION] ❌ Invalid predicate '{triple['predicate']}', allowed: {allowed_predicates}")

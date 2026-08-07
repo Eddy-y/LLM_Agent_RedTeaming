@@ -205,19 +205,83 @@ EXAMPLE:
 OUTPUT: Valid JSON only."""
     return _execute_specialist(raw_items, prompt, "capec", max_tokens=1024)
 
+def run_exploitdb_agent(raw_items):
+    prompt = """Extract Exploit-DB exploit details. Be lenient - extract what you can from limited data.
+
+REQUIRED FIELDS:
+- id: EDB-ID from "id" field (format: "EDB-12345" where 12345 is the id value)
+- details: Expand the description into 30-100 words. If description is short, add context based on exploit type/platform. Focus on vulnerability type, attack method, and impact.
+- severity: Infer from type (remote=CRITICAL, local=HIGH, dos=MEDIUM, webapps=HIGH)
+- published_at: Use "date" field if present, otherwise use "2020-01-01T00:00:00Z" as default
+- references: Array with exploit URL ["https://www.exploit-db.com/exploits/{id}"] where {id} is the numeric id
+- relationships: Array of relationship objects (can be empty array [] if no clear relationships)
+
+RELATIONSHIP RULES (OPTIONAL - only add if applicable):
+1. Add DEMONSTRATES relationship ONLY if verified_cves array has CVE IDs
+2. Add AFFECTS relationship if you can identify affected software from description
+3. Leave relationships array empty [] if uncertain
+
+SEVERITY INFERENCE:
+- type="remote" → CRITICAL
+- type="local" → HIGH
+- type="dos" → MEDIUM
+- type="webapps" → HIGH
+
+EXAMPLE 1 (with CVE):
+{{
+  "id": "EDB-51234",
+  "details": "Buffer overflow vulnerability in MOV Converter allows local attacker to execute arbitrary code via crafted filename. Exploits improper input validation in file parsing routine. Successful exploitation grants code execution privileges.",
+  "severity": "HIGH",
+  "published_at": "2018-12-15T00:00:00Z",
+  "references": ["https://www.exploit-db.com/exploits/51234"],
+  "relationships": [
+    {{
+      "subject": "EDB-51234",
+      "subject_type": "Exploit",
+      "predicate": "DEMONSTRATES",
+      "object": "CVE-2018-1234",
+      "object_type": "Vulnerability"
+    }}
+  ]
+}}
+
+EXAMPLE 2 (no CVE, null date):
+{{
+  "id": "EDB-45101",
+  "details": "Local buffer overflow in Allok MOV Converter via malformed filename. Structured Exception Handler (SEH) based exploit allows code execution when processing specially crafted input. Requires user interaction to open malicious file.",
+  "severity": "HIGH",
+  "published_at": "2020-01-01T00:00:00Z",
+  "references": ["https://www.exploit-db.com/exploits/45101"],
+  "relationships": []
+}}
+
+IMPORTANT: Always return valid JSON. Extract the id field and format as "EDB-{id}". If data is minimal, do your best to expand the description based on type and platform context.
+
+OUTPUT: Valid JSON object with all required fields."""
+    return _execute_specialist(raw_items, prompt, "exploitdb", max_tokens=1024)
+
 def run_central_normalizer(specialist_outputs, source_name):
-    prompt = f"""Normalize the following threat intelligence data. 
-    
+    prompt = f"""Normalize the following threat intelligence data.
+
     Rules for specific fields:
     - "source": strictly use "{source_name}"
-    - "record_type": Infer this from the ID prefix (e.g., use "CVE" if it starts with CVE, "GHSA" if it starts with GHSA).
+    - "record_type": Infer this from the ID prefix (e.g., use "CVE" if it starts with CVE, "GHSA" if it starts with GHSA, "EDB" if it starts with EDB).
+    - "canonical_id": Use the "id" field from input AS-IS (e.g., if id="EDB-12345", then canonical_id="EDB-12345")
     - "title": Generate a concise, 4-to-6 word technical title summarizing the vulnerability based on the description.
-    
-    Target Schema: {{"source": "...", "record_type": "...", "canonical_id": "...", "title": "...", "summary": "...", "severity": "...", "published_at": "...", "references": ["url1", "url2"]}} 
+    - "summary": Use the "details" field from input as the summary
+
+    Target Schema: {{"source": "...", "record_type": "...", "canonical_id": "...", "title": "...", "summary": "...", "severity": "...", "published_at": "...", "references": ["url1", "url2"]}}
+
+    CRITICAL: The canonical_id field MUST match the id field from input exactly. Do not drop the prefix (keep EDB-, CVE-, GHSA-, etc.).
+
     Output JSON only."""
     normalized_results = []
     for item in specialist_outputs:
         result = query_bedrock(prompt, item, agent_name="Central Normalizer")
-        if result and result.get("canonical_id"):
-            normalized_results.append(result)
+        # Accept both "canonical_id" and "id" (normalize "id" → "canonical_id")
+        if result:
+            if not result.get("canonical_id") and result.get("id"):
+                result["canonical_id"] = result["id"]
+            if result.get("canonical_id"):
+                normalized_results.append(result)
     return normalized_results

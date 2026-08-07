@@ -16,6 +16,12 @@ from scripts.utils import ensure_dir, safe_slug, utc_now_iso, write_json
 from src.sources.pypi import fetch_pypi_json, PYPI_SOURCE
 from src.sources.github_advisories import fetch_github_advisories, GITHUB_SOURCE
 from src.sources.nvd import fetch_nvd_cves, NVD_SOURCE
+from src.sources.exploitdb import (
+    fetch_exploitdb_csv_index,
+    parse_csv_batch,
+    extract_exploitdb_items,
+    EXPLOITDB_SOURCE
+)
 
 from scripts.fetchers import fetch_mitre_objects, fetch_capec_objects
 from scripts.state import (
@@ -24,7 +30,8 @@ from scripts.state import (
     advance_mitre_offset,
     advance_capec_offset,
     advance_nvd_offset,
-    advance_github_offset
+    advance_github_offset,
+    advance_exploitdb_offset
 )
 from src.db import get_db_connection, release_db_connection
 
@@ -92,6 +99,10 @@ def extract_id_from_raw(raw_item: dict, source: str) -> str | None:
             if ref.get("source_name") == "capec" and ref.get("external_id"):
                 return ref["external_id"]
         return None
+    elif source == EXPLOITDB_SOURCE:
+        # Exploit-DB structure: {"id": "12345", ...} -> format as EDB-12345
+        edb_id = raw_item.get("id")
+        return f"EDB-{edb_id}" if edb_id else None
     return None
 
 def filter_new_items(raw_items: list[dict], package: str, source: str) -> list[dict]:
@@ -316,6 +327,53 @@ def _run_for_package(run_id: str, package: str, settings) -> None:
             print(f"    [INFO] NVD returned 0 active CVE records for: {package}")
     else:
         print(f"    [WARN] NVD Fetch failed for {package}. Status: {nvd_status} | Error: {nvd_err}")
+
+    # Fetch Exploit-DB exploits with pagination (FLASK ONLY during testing phase)
+    if package.lower() == "flask":
+        exploitdb_offset = load_package_state(package, EXPLOITDB_SOURCE)
+
+        # TESTING: Start at row 10000 to skip ancient exploits (mostly non-web)
+        # The CSV is sorted chronologically, newer exploits more likely to be web-related
+        if exploitdb_offset == 0:
+            exploitdb_offset = 10000
+            print(f"    [Exploit-DB] Starting at offset 10000 (skipping ancient exploits)")
+
+        print(f"    [Exploit-DB] Fetching from row={exploitdb_offset}")
+
+        # Fetch CSV index (cached after first download)
+        csv_cache_path = settings.data_dir / "exploitdb_cache" / "files_exploits.csv"
+        edb_status, edb_csv_path, edb_err, edb_endpoint = fetch_exploitdb_csv_index(
+            timeout_seconds=settings.http_timeout_seconds,
+            user_agent=settings.user_agent,
+            cache_path=csv_cache_path
+        )
+
+        if edb_csv_path:
+            # Parse batch of exploits (larger batch to compensate for filtering)
+            exploit_batch = parse_csv_batch(
+                csv_path=edb_csv_path,
+                start_row=exploitdb_offset,
+                batch_size=200,  # Large batch size to find Python exploits
+                target_packages=[package]
+            )
+
+            if exploit_batch:
+                # Deduplicate (check for existing EDB-* IDs)
+                new_exploits = filter_new_items(exploit_batch, package, EXPLOITDB_SOURCE)
+
+                if new_exploits:
+                    push_to_sqs(run_id, package, EXPLOITDB_SOURCE, new_exploits)
+                    print(f"    [SQS] Queued {len(new_exploits)} new Exploit-DB items")
+                else:
+                    print(f"    [INFO] All {len(exploit_batch)} Exploit-DB records already exist for: {package}")
+
+                # Advance offset (move forward in CSV even if all duplicates)
+                advance_exploitdb_offset(package, len(exploit_batch))
+                print(f"    [STATE] Advanced Exploit-DB offset by {len(exploit_batch)} for {package} (new row: {exploitdb_offset + len(exploit_batch)})")
+            else:
+                print(f"    [INFO] No more Exploit-DB records matching {package} at offset {exploitdb_offset}")
+        else:
+            print(f"    [WARN] Exploit-DB CSV fetch failed. Status: {edb_status} | Error: {edb_err}")
 
 if __name__ == "__main__":
     run_id = run_pipeline()
