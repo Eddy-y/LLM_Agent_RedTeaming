@@ -105,38 +105,38 @@ elif view == "Research Metrics":
     try:
         conn = get_db_connection()
         if conn:
-            # Pulling from evaluation_metrics table ordered by the database ID fallback
-            df = pd.read_sql_query("SELECT * FROM evaluation_metrics ORDER BY id DESC;", conn)
+            # Pulling from graph_execution_metrics table ordered by the database ID fallback
+            df = pd.read_sql_query("SELECT * FROM graph_execution_metrics ORDER BY id DESC;", conn)
             conn.close()
-            
+
             if df.empty:
-                st.warning("Database connected successfully, but the evaluation_metrics table is currently empty.")
+                st.warning("Database connected successfully, but the graph_execution_metrics table is currently empty.")
             else:
                 # Top performance summary cards for metric evaluation
                 col1, col2, col3 = st.columns(3)
                 col1.metric("Total Evaluations Run", len(df))
-                
+
                 # Check for latency metric columns dynamically to prevent runtime exceptions
                 if 'total_latency_sec' in df.columns and not df['total_latency_sec'].isna().all():
                     col2.metric("Avg Latency (Sec)", f"{df['total_latency_sec'].mean():.2f}s")
                 else:
                     col2.metric("Avg Latency (Sec)", "0.00s")
-                    
+
                 if 'guardrail_triggered' in df.columns:
                     col3.metric("Guardrails Triggered", int(df['guardrail_triggered'].sum()))
                 else:
                     col3.metric("Guardrails Triggered", "0")
-                
-                st.markdown("### Evaluation Records Data Grid")
+
+                st.markdown("### Graph Execution Metrics Data Grid")
                 # Sleek spreadsheet display containing your model performance vectors
                 st.dataframe(df, use_container_width=True)
-                
+
                 # Formats the underlying panda data frames as downloadable spreadsheets
                 csv_data = df.to_csv(index=False).encode('utf-8')
                 st.download_button(
                     label="📥 Download Dataset as CSV",
                     data=csv_data,
-                    file_name="aws_evaluation_metrics.csv",
+                    file_name="graph_execution_metrics.csv",
                     mime="text/csv",
                     use_container_width=True
                 )

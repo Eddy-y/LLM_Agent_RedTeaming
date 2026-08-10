@@ -45,6 +45,10 @@ def create_constraints():
         # DefenseControl nodes
         ("CREATE CONSTRAINT control_id IF NOT EXISTS "
          "FOR (d:DefenseControl) REQUIRE d.control_id IS UNIQUE"),
+
+        # Exploit nodes (Exploit-DB)
+        ("CREATE CONSTRAINT exploit_edb_id IF NOT EXISTS "
+         "FOR (e:Exploit) REQUIRE e.edb_id IS UNIQUE"),
     ]
 
     with get_neo4j_session() as session:
@@ -78,6 +82,15 @@ def create_indexes():
 
         # Package ecosystem
         "CREATE INDEX package_ecosystem IF NOT EXISTS FOR (p:Package) ON (p.ecosystem)",
+
+        # Exploit platform filtering
+        "CREATE INDEX exploit_platform IF NOT EXISTS FOR (e:Exploit) ON (e.platform)",
+
+        # Exploit type filtering
+        "CREATE INDEX exploit_type IF NOT EXISTS FOR (e:Exploit) ON (e.type)",
+
+        # Exploit published date
+        "CREATE INDEX exploit_published IF NOT EXISTS FOR (e:Exploit) ON (e.published_at)",
     ]
 
     with get_neo4j_session() as session:
@@ -115,6 +128,10 @@ def create_fulltext_indexes():
         # Weakness description search
         ("CREATE FULLTEXT INDEX weakness_description IF NOT EXISTS "
          "FOR (w:Weakness) ON EACH [w.description, w.name]"),
+
+        # Exploit summary and title search
+        ("CREATE FULLTEXT INDEX exploit_summary IF NOT EXISTS "
+         "FOR (e:Exploit) ON EACH [e.summary, e.title]"),
     ]
 
     with get_neo4j_session() as session:

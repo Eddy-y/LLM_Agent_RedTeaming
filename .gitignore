@@ -51,23 +51,34 @@ data/audit_logs.jsonl
 cti_dependencies/python/
 
 # ==========================================
-# Documentation (Optional - keep working docs, ignore redundant)
+# Documentation (Redundant/Temporary)
 # ==========================================
-# Uncomment to ignore redundant documentation files
-# GRAPHRAG_IMPLEMENTATION_SUMMARY.md
+# Ignore redundant documentation files
+GRAPHRAG_IMPLEMENTATION_SUMMARY.md
+PROFESSOR_TESTING_CHECKLIST.md
+CLAUDE.md.local
+*.md.local
+*.md.bak
 
 # ==========================================
 # IDE & OS Files
 # ==========================================
 # macOS metadata
 .DS_Store
+.DS_Store?
+._*
 .AppleDouble
 .LSOverride
+.Spotlight-V100
+.Trashes
 
 # Windows metadata
 Thumbs.db
+Thumbs.db:encryptable
 ehthumbs.db
+ehthumbs_vista.db
 Desktop.ini
+$RECYCLE.BIN/
 
 # VS Code
 .vscode/
@@ -91,6 +102,7 @@ htmlcov/
 # ==========================================
 *.log
 logs/
+run_logs/
 pip-log.txt
 
 # ==========================================

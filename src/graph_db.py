@@ -147,7 +147,8 @@ def get_id_field(node_type: str) -> str:
         "Weakness": "cwe_id",
         "AttackTactic": "mitre_id",
         "AttackPattern": "capec_id",
-        "DefenseControl": "control_id"
+        "DefenseControl": "control_id",
+        "Exploit": "edb_id"
     }
     return mapping.get(node_type, "id")
 
